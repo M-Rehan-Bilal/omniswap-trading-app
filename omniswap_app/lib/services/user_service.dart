@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SessionExpiredException implements Exception {
@@ -38,19 +39,38 @@ class UserService {
     final email = user.email!;
     final displayName =
     (meta['full_name'] ?? meta['name'] ?? email.split('@').first) as String;
+    final avatarUrl = meta['avatar_url'] ?? meta['picture'];
 
     try {
-      await _client.from('users').upsert({
-        'id': user.id,
-        'google_subject': (meta['sub'] ?? user.id) as String,
-        'email': email,
-        'display_name': displayName,
-        'avatar_url': meta['avatar_url'] ?? meta['picture'],
-        'whatsapp_number': whatsappNumber,
-      });
+      final existing = await _client
+          .from('users')
+          .select('id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (existing == null) {
+        // First time: insert the full row.
+        await _client.from('users').insert({
+          'id': user.id,
+          'google_subject': (meta['sub'] ?? user.id) as String,
+          'email': email,
+          'display_name': displayName,
+          'avatar_url': avatarUrl,
+          'whatsapp_number': whatsappNumber,
+        });
+      } else {
+        // Row exists: update only the columns the policies allow.
+        await _client.from('users').update({
+          'display_name': displayName,
+          'avatar_url': avatarUrl,
+          'whatsapp_number': whatsappNumber,
+        }).eq('id', user.id);
+      }
     } on PostgrestException catch (e) {
+      debugPrint('Postgrest error: code=${e.code}, message=${e.message}, '
+          'details=${e.details}, hint=${e.hint}');
+
       if (e.code == '23503') {
-        // Foreign key failed: the login no longer exists on the server.
         await _clearStaleSession();
         throw SessionExpiredException();
       }
