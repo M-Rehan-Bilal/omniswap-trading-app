@@ -1,33 +1,17 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../main.dart' show supabase;
 
-const _redirect = 'io.supabase.omniswap://login-callback/';
+class AuthService {
+  final SupabaseClient _client = Supabase.instance.client;
 
-Future<void> signInWithGoogle() async {
-  await supabase.auth.signInWithOAuth(
-    OAuthProvider.google,
-    redirectTo: _redirect,
-  );
-}
+  User? get currentUser => _client.auth.currentUser;
 
-Future<void> signOut() => supabase.auth.signOut();
-
-/// True if the signed-in user still has to enter a WhatsApp number.
-Future<bool> needsWhatsapp() async {
-  final uid = supabase.auth.currentUser!.id;
-  final row = await supabase
-      .from('users')
-      .select('whatsapp_number')
-      .eq('id', uid)
-      .single();
-  return row['whatsapp_number'] == null;
-}
-
-Future<void> saveWhatsapp(String number) async {
-  final valid = RegExp(r'^\+[1-9][0-9]{1,14}$').hasMatch(number);
-  if (!valid) {
-    throw Exception('Use international format, for example +923001234567');
+  Future<void> signInWithGoogle() async {
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'io.supabase.omniswap://login-callback/',
+      queryParams: {'prompt': 'select_account'},
+    );
   }
-  final uid = supabase.auth.currentUser!.id;
-  await supabase.from('users').update({'whatsapp_number': number}).eq('id', uid);
+
+  Future<void> signOut() => _client.auth.signOut();
 }
