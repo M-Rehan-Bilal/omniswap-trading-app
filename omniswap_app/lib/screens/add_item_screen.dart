@@ -140,7 +140,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _saving = true);
     try {
-      await _service.addItemToInventory(
+      final itemId = await _service.addItemToInventory(
         title: title,
         description: description,
         condition: _condition!,
@@ -148,7 +148,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
         photos: List.unmodifiable(_photos),
       );
       if (!mounted) return;
-      Navigator.pop(context, true); // lets the previous screen refresh
+      Navigator.pop(context, itemId); // Inventory shows this item in its banner
     } catch (_) {
       _showMessage('Could not save the item. Please try again.');
     } finally {
