@@ -8,6 +8,7 @@ import 'screens/add_item_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/user_service.dart';
+import 'screens/inventory_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,7 @@ class OmniSwapApp extends StatelessWidget {
       home: const AuthGate(),
       routes: {
         '/add-item': (_) => const AddItemScreen(),
+        '/inventory': (_) => const InventoryScreen(),
       },
     );
   }
