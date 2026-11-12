@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'screens/add_item_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/user_service.dart';
@@ -41,6 +42,9 @@ class OmniSwapApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
       home: const AuthGate(),
+      routes: {
+        '/add-item': (_) => const AddItemScreen(),
+      },
     );
   }
 }

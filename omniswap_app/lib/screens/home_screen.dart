@@ -206,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: kOmniYellow,
         elevation: 2,
         onPressed: () =>
-            Navigator.pushNamed(context, '/post').then((_) => _loadListings()),
+            Navigator.pushNamed(context, '/add-item').then((_) => _loadListings()),
         child: const Icon(Icons.add, color: kOmniInk, size: 30),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
