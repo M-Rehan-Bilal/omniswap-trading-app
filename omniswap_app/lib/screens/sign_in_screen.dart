@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../data/countries.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import 'home_screen.dart';
@@ -16,10 +18,17 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen>
     with WidgetsBindingObserver {
+  final _countryController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _areaController = TextEditingController();
   final _numberController = TextEditingController();
+
   final _auth = AuthService();
   final _users = UserService();
   bool _loading = false;
+
+  /// The country the user picked. It sets the city list and the phone code.
+  CountryInfo? _country;
 
   // The Google account shown in the badge. Stored in state so it survives
   // rebuilds and is refreshed explicitly, instead of relying on a rebuild.
@@ -53,6 +62,9 @@ class _SignInScreenState extends State<SignInScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
+    _countryController.dispose();
+    _cityController.dispose();
+    _areaController.dispose();
     _numberController.dispose();
     super.dispose();
   }
@@ -81,13 +93,66 @@ class _SignInScreenState extends State<SignInScreen>
     }
   }
 
-  Future<void> _createAccount() async {
-    final digits = _numberController.text.replaceAll(RegExp(r'\D'), '');
+  void _onCountrySelected(CountryInfo? value) {
+    setState(() {
+      _country = value;
+      // A city from the previous country isn't valid for this one.
+      _cityController.clear();
+    });
+  }
 
-    if (digits.length != 10 || !digits.startsWith('3')) {
-      _showError('Enter a valid number, e.g. 300 1234567');
-      return;
+  /// Checks every field. Returns the cleaned values, or shows an error and returns null.
+  _FormData? _validateForm() {
+    final country = _country;
+    if (country == null || _countryController.text.trim() != country.name) {
+      _showError('Select your country from the list.');
+      return null;
     }
+
+    final city = _cityController.text.trim();
+    final cities = country.cities;
+    if (city.isEmpty) {
+      _showError(cities == null
+          ? 'Enter your city.'
+          : 'Select your city from the list.');
+      return null;
+    }
+    if (cities != null && !cities.contains(city)) {
+      _showError('Select your city from the list.');
+      return null;
+    }
+    if (city.length > 100) {
+      _showError('City name is too long.');
+      return null;
+    }
+
+    final area = _areaController.text.trim();
+    if (area.isEmpty) {
+      _showError('Enter your area.');
+      return null;
+    }
+    if (area.length > 100) {
+      _showError('Area name is too long.');
+      return null;
+    }
+
+    final whatsappNumber = country.normalizePhone(_numberController.text);
+    if (whatsappNumber == null) {
+      _showError(country.phoneError);
+      return null;
+    }
+
+    return _FormData(
+      whatsappNumber: whatsappNumber,
+      country: country.name,
+      city: city,
+      area: area,
+    );
+  }
+
+  Future<void> _createAccount() async {
+    final form = _validateForm();
+    if (form == null) return;
 
     // Check the live session, not the cached _user field.
     final user = _auth.currentUser;
@@ -99,7 +164,12 @@ class _SignInScreenState extends State<SignInScreen>
 
     setState(() => _loading = true);
     try {
-      await _users.saveProfile(whatsappNumber: '+92$digits');
+      await _users.saveProfile(
+        whatsappNumber: form.whatsappNumber,
+        country: form.country,
+        city: form.city,
+        area: form.area,
+      );
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -113,6 +183,100 @@ class _SignInScreenState extends State<SignInScreen>
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Widget _buildCountryField() {
+    return DropdownMenu<CountryInfo>(
+      controller: _countryController,
+      enabled: !_loading,
+      enableFilter: true,
+      enableSearch: true,
+      requestFocusOnTap: true,
+      expandedInsets: EdgeInsets.zero,
+      label: const Text('Country'),
+      hintText: 'Search your country',
+      dropdownMenuEntries: [
+        for (final country in kCountries)
+          DropdownMenuEntry<CountryInfo>(value: country, label: country.name),
+      ],
+      onSelected: _onCountrySelected,
+    );
+  }
+
+  Widget _buildCityField() {
+    final country = _country;
+    final enabled = country != null && !_loading;
+    final cities = country?.cities;
+
+    // Countries without a city list get a plain text field.
+    if (country == null || cities == null) {
+      return TextField(
+        controller: _cityController,
+        enabled: enabled,
+        textCapitalization: TextCapitalization.words,
+        decoration: InputDecoration(
+          labelText: 'City',
+          hintText: enabled ? 'Enter your city' : 'Select a country first',
+          border: const OutlineInputBorder(),
+        ),
+      );
+    }
+
+    // The key makes the dropdown start fresh when the country changes.
+    return DropdownMenu<String>(
+      key: ValueKey('city-${country.name}'),
+      controller: _cityController,
+      enabled: enabled,
+      enableFilter: true,
+      enableSearch: true,
+      requestFocusOnTap: true,
+      expandedInsets: EdgeInsets.zero,
+      label: const Text('City'),
+      hintText: 'Search your city',
+      dropdownMenuEntries: [
+        for (final city in cities)
+          DropdownMenuEntry<String>(value: city, label: city),
+      ],
+    );
+  }
+
+  Widget _buildPhoneRow() {
+    final country = _country;
+    final enabled = country != null && !_loading;
+
+    return Row(
+      children: [
+        // Shows the flag and dial code of the selected country.
+        Container(
+          constraints: const BoxConstraints(minWidth: 96),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          decoration: BoxDecoration(
+            border: Border.all(),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            country == null ? '+ --' : '${country.flag} +${country.dialCode}',
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: TextField(
+            controller: _numberController,
+            enabled: enabled,
+            keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9 ]')),
+              LengthLimitingTextInputFormatter(15),
+            ],
+            decoration: InputDecoration(
+              hintText: country?.phoneHint ?? 'Select a country first',
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -162,32 +326,27 @@ class _SignInScreenState extends State<SignInScreen>
                 ),
               const SizedBox(height: 24),
 
+              const Text('Your location'),
+              const SizedBox(height: 8),
+              _buildCountryField(),
+              const SizedBox(height: 12),
+              _buildCityField(),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _areaController,
+                enabled: !_loading,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Area',
+                  hintText: 'e.g. DHA Phase 5, Gulberg',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 24),
+
               const Text('Your WhatsApp number'),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  Container(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text('🇵🇰 +92'),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _numberController,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        hintText: '300 1234567',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              _buildPhoneRow(),
               const SizedBox(height: 24),
 
               ElevatedButton(
@@ -214,6 +373,21 @@ class _SignInScreenState extends State<SignInScreen>
       ),
     );
   }
+}
+
+/// The validated values from the form.
+class _FormData {
+  const _FormData({
+    required this.whatsappNumber,
+    required this.country,
+    required this.city,
+    required this.area,
+  });
+
+  final String whatsappNumber;
+  final String country;
+  final String city;
+  final String area;
 }
 
 /// Shows the signed-in Google account. Tapping it lets the user pick another.
