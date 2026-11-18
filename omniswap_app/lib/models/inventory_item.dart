@@ -7,6 +7,7 @@ class InventoryItem {
     required this.description,
     required this.condition,
     required this.manufactureYear,
+    required this.postId,
     required this.photoPaths,
     required this.urlByPath,
   });
@@ -17,11 +18,16 @@ class InventoryItem {
   final ItemCondition condition;
   final int? manufactureYear;
 
+  /// The post this item belongs to, or null if it is not posted.
+  final String? postId;
+
   /// Storage paths in display order. The first one is the cover.
   final List<String> photoPaths;
 
-  /// Signed URL for each path that could be signed. Paths that failed are missing.
+  /// Signed URL for each path that could be signed. Failed paths are missing.
   final Map<String, String> urlByPath;
+
+  bool get isPosted => postId != null;
 
   String? get coverUrl =>
       photoPaths.isEmpty ? null : urlByPath[photoPaths.first];
@@ -46,6 +52,7 @@ class InventoryItem {
       description: row['description'] as String,
       condition: ItemCondition.fromDb(row['item_condition'] as String),
       manufactureYear: row['manufacture_year'] as int?,
+      postId: row['post_id'] as String?,
       photoPaths: photoPathsFrom(row),
       urlByPath: urlByPath,
     );

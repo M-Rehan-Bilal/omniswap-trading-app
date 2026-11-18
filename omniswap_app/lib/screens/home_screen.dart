@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/post_listing.dart';
 import '../services/trade_service.dart';
+import '../widgets/omni_bottom_bar.dart';
 
 const Color kOmniYellow = Color(0xFFFFE01B);
 const Color kOmniInk = Color(0xFF1B2433);
@@ -21,7 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Listings and matches
   List<PostListing> _myPosts = [];
-  Map<String, List<PostListing>> _matchesByItemId = {};
+  Map<String, List<PostListing>> _matchesByPostId = {};
   bool _loadingListings = true;
 
   // Find Trade
@@ -43,15 +44,19 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  /// Unique inventory items (one item can be posted in several places).
-  List<PostListing> get _myItems {
+  /// Every item in my active posts. An item is in at most one post.
+  List<PostedItem> get _myItems {
     final seen = <String>{};
-    return _myPosts.where((p) => seen.add(p.itemId)).toList();
+    return [
+      for (final post in _myPosts)
+        for (final item in post.items)
+          if (seen.add(item.id)) item,
+    ];
   }
 
-  PostListing? get _selectedItem {
+  PostedItem? get _selectedItem {
     for (final item in _myItems) {
-      if (item.itemId == _selectedItemId) return item;
+      if (item.id == _selectedItemId) return item;
     }
     return null;
   }
@@ -61,23 +66,36 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  /// Opens a route, then reloads listings when the user comes back.
+  Future<void> _openRoute(String route, {Object? arguments}) async {
+    await Navigator.pushNamed(context, route, arguments: arguments);
+    if (mounted) _loadListings();
+  }
+
   Future<void> _loadListings() async {
     setState(() => _loadingListings = true);
     try {
       final posts = await _service.fetchMyActivePosts();
-      final wanting = await _service.fetchPostsWantingModels(
-        posts.map((p) => p.modelKey).toSet(),
-      );
+      final keys = {for (final post in posts) ...post.itemKeys};
+      final wanting = await _service.fetchPostsWantingModels(keys);
 
+      // A post matches if it wants any item in my bundle. Each post appears once.
       final matches = <String, List<PostListing>>{};
       for (final post in posts) {
-        matches[post.itemId] = wanting[post.modelKey] ?? [];
+        final seen = <String>{};
+        final found = <PostListing>[];
+        for (final key in post.itemKeys) {
+          for (final other in wanting[key] ?? const <PostListing>[]) {
+            if (seen.add(other.postId)) found.add(other);
+          }
+        }
+        matches[post.postId] = found;
       }
 
       if (!mounted) return;
       setState(() {
         _myPosts = posts;
-        _matchesByItemId = matches;
+        _matchesByPostId = matches;
         if (_selectedItem == null) _selectedItemId = null;
       });
     } catch (_) {
@@ -120,11 +138,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showMatchesFor(PostListing item) {
+  void _showMatchesFor(PostListing post) {
     setState(() {
-      _selectedItemId = item.itemId;
-      _results = _matchesByItemId[item.itemId] ?? [];
-      _resultsTitle = 'People who want your ${item.modelName}';
+      _selectedItemId = post.cover?.id;
+      _results = _matchesByPostId[post.postId] ?? [];
+      _resultsTitle = 'People who want ${post.displayTitle}';
       _hasSearched = true;
     });
   }
@@ -136,7 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
     String? newSelectedId;
     for (final item in _myItems) {
       if (item.modelKey == typedWant) {
-        newSelectedId = item.itemId;
+        newSelectedId = item.id;
         break;
       }
     }
@@ -156,7 +174,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openOffer(PostListing post) {
-    Navigator.pushNamed(context, '/make-offer', arguments: post);
+    _openRoute('/make-offer', arguments: post);
+  }
+
+  void _onTab(OmniTab tab) {
+    switch (tab) {
+      case OmniTab.home:
+        break;
+      case OmniTab.browse:
+        _openRoute('/browse');
+        break;
+      case OmniTab.inventory:
+        _openRoute('/inventory');
+        break;
+      case OmniTab.trades:
+        _openRoute('/trades');
+        break;
+    }
   }
 
   @override
@@ -173,11 +207,11 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_none_rounded, color: kOmniInk),
-            onPressed: () => Navigator.pushNamed(context, '/notifications'),
+            onPressed: () => _openRoute('/notifications'),
           ),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined, color: kOmniInk),
-            onPressed: () => Navigator.pushNamed(context, '/profile'),
+            onPressed: () => _openRoute('/profile'),
           ),
         ],
       ),
@@ -205,12 +239,14 @@ class _HomeScreenState extends State<HomeScreen> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: kOmniYellow,
         elevation: 2,
-        onPressed: () =>
-            Navigator.pushNamed(context, '/add-item').then((_) => _loadListings()),
+        onPressed: () => _openRoute('/add-item'),
         child: const Icon(Icons.add, color: kOmniInk, size: 30),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      bottomNavigationBar: _buildBottomBar(),
+      bottomNavigationBar: OmniBottomBar(
+        selected: OmniTab.home,
+        onSelect: _onTab,
+      ),
     );
   }
 
@@ -239,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const _FieldLabel('I HAVE'),
           const SizedBox(height: 6),
           DropdownButtonFormField<String>(
-            value: _selectedItem?.itemId,
+            value: _selectedItem?.id,
             isExpanded: true,
             decoration: _inputDecoration(
               hint: _loadingListings
@@ -248,14 +284,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? 'Post an item first'
                   : 'Select an item',
             ),
-            items: items
-                .map(
-                  (item) => DropdownMenuItem<String>(
-                value: item.itemId,
-                child: Text(item.modelName, overflow: TextOverflow.ellipsis),
-              ),
-            )
-                .toList(),
+            items: [
+              for (final item in items)
+                DropdownMenuItem<String>(
+                  value: item.id,
+                  child: Text(item.modelName, overflow: TextOverflow.ellipsis),
+                ),
+            ],
             onChanged: items.isEmpty
                 ? null
                 : (value) => setState(() => _selectedItemId = value),
@@ -344,89 +379,47 @@ class _HomeScreenState extends State<HomeScreen> {
             style: const TextStyle(color: kOmniMuted, fontSize: 13),
           ),
         ),
-        ..._results.map(
-              (post) => Padding(
+        for (final post in _results)
+          Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _ResultCard(post: post, onTap: () => _openOffer(post)),
           ),
-        ),
       ],
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Matches for my listings (horizontal cards)
+  // Matches for my listings: one card per post
   // ---------------------------------------------------------------------------
 
   Widget _buildMyMatches() {
-    if (_loadingListings && _myItems.isEmpty) {
+    if (_loadingListings && _myPosts.isEmpty) {
       return const SizedBox(
         height: 130,
         child: Center(child: CircularProgressIndicator()),
       );
     }
-    if (_myItems.isEmpty) {
+    if (_myPosts.isEmpty) {
       return const _EmptyBox(
         icon: Icons.inventory_2_outlined,
         message: 'Post an item to see who wants it.',
       );
     }
 
-    final items = _myItems;
     return SizedBox(
       height: 130,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: items.length,
+        itemCount: _myPosts.length,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
-          final item = items[index];
-          final count = _matchesByItemId[item.itemId]?.length ?? 0;
+          final post = _myPosts[index];
           return _ListingMatchCard(
-            item: item,
-            matchCount: count,
-            onTap: () => _showMatchesFor(item),
+            post: post,
+            matchCount: _matchesByPostId[post.postId]?.length ?? 0,
+            onTap: () => _showMatchesFor(post),
           );
         },
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Bottom navigation (Post button is the docked yellow FAB)
-  // ---------------------------------------------------------------------------
-
-  Widget _buildBottomBar() {
-    return BottomAppBar(
-      shape: const CircularNotchedRectangle(),
-      notchMargin: 8,
-      color: Colors.white,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _NavItem(
-            icon: Icons.home_rounded,
-            label: 'Home',
-            selected: true,
-            onTap: () {},
-          ),
-          _NavItem(
-            icon: Icons.grid_view_rounded,
-            label: 'Browse',
-            onTap: () => Navigator.pushNamed(context, '/browse'),
-          ),
-          const SizedBox(width: 56), // space for the docked FAB
-          _NavItem(
-            icon: Icons.shopping_cart_outlined,
-            label: 'Inventory',
-            onTap: () => Navigator.pushNamed(context, '/inventory'),
-          ),
-          _NavItem(
-            icon: Icons.swap_horiz_rounded,
-            label: 'Trades',
-            onTap: () => Navigator.pushNamed(context, '/trades'),
-          ),
-        ],
       ),
     );
   }
@@ -474,7 +467,9 @@ IconData _iconFor(String modelName) {
     return Icons.sports_esports_outlined;
   }
   if (key.contains('watch')) return Icons.watch_outlined;
-  if (key.contains('iphone') || key.contains('phone') || key.contains('galaxy')) {
+  if (key.contains('iphone') ||
+      key.contains('phone') ||
+      key.contains('galaxy')) {
     return Icons.phone_iphone;
   }
   if (key.contains('ipad') || key.contains('tablet')) return Icons.tablet_mac;
@@ -485,6 +480,7 @@ IconData _iconFor(String modelName) {
 }
 
 String _prettyCondition(String condition) {
+  if (condition.isEmpty) return condition;
   final text = condition.replaceAll('_', ' ');
   return text[0].toUpperCase() + text.substring(1);
 }
@@ -561,12 +557,12 @@ class _EmptyBox extends StatelessWidget {
 
 class _ListingMatchCard extends StatelessWidget {
   const _ListingMatchCard({
-    required this.item,
+    required this.post,
     required this.matchCount,
     required this.onTap,
   });
 
-  final PostListing item;
+  final PostListing post;
   final int matchCount;
   final VoidCallback onTap;
 
@@ -597,11 +593,14 @@ class _ListingMatchCard extends StatelessWidget {
                     color: kOmniBg,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(_iconFor(item.modelName), color: kOmniInk),
+                  child: Icon(
+                    _iconFor(post.cover?.modelName ?? ''),
+                    color: kOmniInk,
+                  ),
                 ),
                 const Spacer(),
                 Text(
-                  item.title,
+                  post.displayTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -633,7 +632,13 @@ class _ResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final wantsLine = post.acceptsOutsideWants
         ? 'Open to any item'
+        : post.wantNames.isEmpty
+        ? 'Open to offers'
         : 'Wants: ${post.wantNames.join(', ')}';
+
+    final detailLine = post.items.length == 1
+        ? 'Condition: ${_prettyCondition(post.items.first.condition)}'
+        : '${post.items.length} items in this post';
 
     return Material(
       color: Colors.white,
@@ -652,7 +657,10 @@ class _ResultCard extends StatelessWidget {
                   color: kOmniBg,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(_iconFor(post.modelName), color: kOmniInk),
+                child: Icon(
+                  _iconFor(post.cover?.modelName ?? ''),
+                  color: kOmniInk,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -660,7 +668,7 @@ class _ResultCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      post.title,
+                      post.displayTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -670,7 +678,7 @@ class _ResultCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Condition: ${_prettyCondition(post.condition)}',
+                      detailLine,
                       style: const TextStyle(color: kOmniMuted, fontSize: 12),
                     ),
                     const SizedBox(height: 2),
@@ -686,49 +694,6 @@ class _ResultCard extends StatelessWidget {
               const Icon(Icons.chevron_right, color: kOmniMuted),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.selected = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected ? kOmniInk : kOmniMuted;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: SizedBox(
-        width: 64,
-        height: 56,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22, color: color),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: color,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-              ),
-            ),
-          ],
         ),
       ),
     );
