@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/post_listing.dart';
 import '../services/trade_service.dart';
+import '../services/profile_service.dart';
 
 const Color kOmniYellow = Color(0xFFFFE01B);
 const Color kOmniInk = Color(0xFF1B2433);
@@ -31,10 +32,24 @@ class _HomeScreenState extends State<HomeScreen> {
   String _resultsTitle = '';
   List<PostListing> _results = [];
 
+  final ProfileService _profileService = ProfileService();
+  String? _avatarUrl;
+
+  Future<void> _loadAvatar() async {
+    try {
+      final profile = await _profileService.fetchMyProfile();
+      if (!mounted) return;
+      setState(() => _avatarUrl = profile.avatarUrl);
+    } catch (_) {
+      // Keep the default icon if the profile can't be loaded.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _loadListings();
+    _loadAvatar();
   }
 
   @override
@@ -176,8 +191,18 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => Navigator.pushNamed(context, '/notifications'),
           ),
           IconButton(
-            icon: const Icon(Icons.account_circle_outlined, color: kOmniInk),
-            onPressed: () => Navigator.pushNamed(context, '/profile'),
+            tooltip: 'Profile',
+            onPressed: () =>
+                Navigator.pushNamed(context, '/profile').then((_) => _loadAvatar()),
+            icon: CircleAvatar(
+              radius: 16,
+              backgroundColor: kOmniBg,
+              backgroundImage:
+              _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+              child: _avatarUrl == null
+                  ? const Icon(Icons.account_circle_outlined, color: kOmniInk)
+                  : null,
+            ),
           ),
         ],
       ),

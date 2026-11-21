@@ -66,8 +66,6 @@ class UserService {
       } else {
         // Row exists: update only the columns the policies allow.
         await _client.from('users').update({
-          'display_name': displayName,
-          'avatar_url': avatarUrl,
           'whatsapp_number': whatsappNumber,
           ...location,
         }).eq('id', user.id);
