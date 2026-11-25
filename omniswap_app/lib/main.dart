@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/add_item_screen.dart';
+import 'screens/browse_screen.dart';
 import 'screens/edit_profile_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/inventory_screen.dart';
@@ -52,6 +53,7 @@ class OmniSwapApp extends StatelessWidget {
       home: const AuthGate(),
       routes: {
         '/add-item': (_) => const AddItemScreen(),
+        '/browse': (_) => const BrowseScreen(),
         '/inventory': (_) => const InventoryScreen(),
         '/profile': (_) => const EditProfileScreen(),
       },
