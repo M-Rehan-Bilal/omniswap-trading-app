@@ -80,19 +80,31 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _loadingListings = true);
     try {
       final posts = await _service.fetchMyActivePosts();
+
+      // Every item in every post counts, not only each post's cover item.
       final wanting = await _service.fetchPostsWantingModels(
-        posts.map((p) => p.modelKey).toSet(),
+        {for (final post in posts) ...post.itemKeys},
       );
 
       final matches = <String, List<PostListing>>{};
       for (final post in posts) {
-        matches[post.itemId] = wanting[post.modelKey] ?? [];
+        final seenPostIds = <String>{};
+        final found = <PostListing>[];
+
+        for (final key in post.itemKeys) {
+          for (final other in wanting[key] ?? const <PostListing>[]) {
+            // One post can match through several of its items, so list it once.
+            if (seenPostIds.add(other.postId)) found.add(other);
+          }
+        }
+        matches[post.itemId] = found;
       }
 
       if (!mounted) return;
       setState(() {
         _myPosts = posts;
         _matchesByItemId = matches;
+        // Clear the selection if the selected item is no longer listed.
         if (_selectedItem == null) _selectedItemId = null;
       });
     } catch (_) {
@@ -110,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _showMessage('Choose an item you have.');
       return;
     }
-    if (want.isEmpty) {
+    if (want.isEmpty || normalizeModelKey(want).isEmpty) {
       _showMessage('Type the item you want.');
       return;
     }
@@ -118,14 +130,15 @@ class _HomeScreenState extends State<HomeScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _searching = true);
     try {
+      // Pass every item in the post, so a bundle matches through any of its items.
       final results = await _service.findDirectTrades(
-        haveModelKey: item.modelKey,
+        haveModelKeys: item.itemKeys,
         wantText: want,
       );
       if (!mounted) return;
       setState(() {
         _results = results;
-        _resultsTitle = 'Trades for ${item.modelName} → $want';
+        _resultsTitle = 'Trades for ${item.displayTitle} → $want';
         _hasSearched = true;
       });
     } catch (_) {

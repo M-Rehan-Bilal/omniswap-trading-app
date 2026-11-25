@@ -8,7 +8,8 @@ class ProfileService {
   ProfileService({SupabaseClient? client})
       : _client = client ?? Supabase.instance.client;
 
-  static const String avatarBucket = 'item-images';
+  /// Public bucket for avatars. Item photos use the private 'item-images' bucket.
+  static const String avatarBucket = 'avatars';
 
   final SupabaseClient _client;
 

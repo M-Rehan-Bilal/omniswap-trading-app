@@ -15,7 +15,7 @@ class TradeService {
 
   static const String _postSelect =
       'id, owner_id, accepts_outside_wants, '
-      'items!inner(id, title, model_name, model_key, item_condition), '
+      'items(id, title, model_name, model_key, item_condition), '
       'wants(model_name, model_key)';
 
   String get currentUserId {
@@ -26,8 +26,7 @@ class TradeService {
     return user.id;
   }
 
-  /// The current user's active posts. Used for the "I HAVE" dropdown
-  /// and for "Matches for my listings".
+  /// The current user's active posts, newest first.
   Future<List<PostListing>> fetchMyActivePosts() async {
     final rows = await _client
         .from('posts')
@@ -36,34 +35,62 @@ class TradeService {
         .eq('status', 'active')
         .order('created_at', ascending: false);
 
-    return rows.map(PostListing.fromRow).toList();
+    return [
+      for (final row in rows) PostListing.fromRow(row as Map<String, dynamic>),
+    ];
   }
 
-  /// Direct trades: other users' active posts whose item matches [wantText]
-  /// AND who either want [haveModelKey] or accept any item.
+  /// Direct trades: active posts from other users that hold an item matching
+  /// [wantText] and either want [haveModelKey] or accept outside wants.
+  /// Direct trades: active posts from other users that hold an item matching
+  /// [wantText] and either want one of [haveModelKeys] or accept outside wants.
   Future<List<PostListing>> findDirectTrades({
-    required String haveModelKey,
+    required Set<String> haveModelKeys,
     required String wantText,
   }) async {
     final wantKey = normalizeModelKey(wantText);
     if (wantKey.isEmpty) return [];
+    final me = currentUserId;
 
-    final rows = await _client
+    // Step 1: find the posts that hold a matching item.
+    // Filtering the embedded items here would also trim each post's bundle.
+    final itemRows = await _client
+        .from('items')
+        .select('post_id')
+        .not('post_id', 'is', null)
+        .neq('owner_id', me)
+        .ilike('model_key', '%$wantKey%')
+        .limit(200);
+
+    final postIds = {
+      for (final row in itemRows) row['post_id'] as String,
+    }.toList();
+    if (postIds.isEmpty) return [];
+
+    // Step 2: load those posts in full, keeping only active ones.
+    final postRows = await _client
         .from('posts')
         .select(_postSelect)
+        .inFilter('id', postIds)
         .eq('status', 'active')
-        .neq('owner_id', currentUserId)
-        .ilike('items.model_key', '%$wantKey%')
+        .neq('owner_id', me)
         .limit(50);
 
-    final posts = rows.map(PostListing.fromRow);
+    final posts = [
+      for (final row in postRows)
+        PostListing.fromRow(row as Map<String, dynamic>),
+    ];
+
+    // Keep a post if it accepts any outside item, or if it wants one of
+    // the items in the user's post.
     return posts
         .where((p) =>
-    p.acceptsOutsideWants || p.wantKeys.contains(haveModelKey))
+    p.acceptsOutsideWants ||
+        p.wantKeys.any((key) => haveModelKeys.contains(key)))
         .toList();
   }
 
-  /// Active posts from other users that want any of the given model keys.
+  /// Active posts from other users that want any of [modelKeys].
   /// Returned as a map: wanted model_key -> posts that want it.
   Future<Map<String, List<PostListing>>> fetchPostsWantingModels(
       Set<String> modelKeys,
@@ -73,7 +100,7 @@ class TradeService {
     final rows = await _client
         .from('wants')
         .select('model_key, posts!inner(id, owner_id, accepts_outside_wants, '
-        'items!inner(id, title, model_name, model_key, item_condition), '
+        'items(id, title, model_name, model_key, item_condition), '
         'wants(model_name, model_key))')
         .inFilter('model_key', modelKeys.toList())
         .eq('posts.status', 'active')

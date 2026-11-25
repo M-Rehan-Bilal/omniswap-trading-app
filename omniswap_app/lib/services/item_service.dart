@@ -45,6 +45,7 @@ class ItemService {
     final storage = _client.storage.from(photoBucket);
     final batch = DateTime.now().microsecondsSinceEpoch.toString();
     final uploadedPaths = <String>[];
+    String? itemId;
 
     try {
       // 1. Upload photos. The first folder must be the user's id (see storage policies).
@@ -61,7 +62,7 @@ class ItemService {
         uploadedPaths.add(path);
       }
 
-      // 2. Create the item. Title and model name hold the same value.
+      // 2. Create the item.
       final item = await _client
           .from('items')
           .insert({
@@ -74,21 +75,27 @@ class ItemService {
       })
           .select('id')
           .single();
-      final itemId = item['id'] as String;
+      final createdId = item['id'] as String;
+      itemId = createdId;
 
       // 3. Link the photos to the item, in order.
       await _client.from('item_images').insert([
         for (var i = 0; i < uploadedPaths.length; i++)
           {
-            'item_id': itemId,
+            'item_id': createdId,
             'position': i + 1,
             'storage_key': uploadedPaths[i],
           },
       ]);
 
-      return itemId;
+      return createdId;
     } catch (_) {
-      // Remove any photos already uploaded so storage has no orphans.
+      // Undo partial work so no orphan item or photos are left behind.
+      if (itemId != null) {
+        try {
+          await _client.from('items').delete().eq('id', itemId);
+        } catch (_) {}
+      }
       if (uploadedPaths.isNotEmpty) {
         try {
           await storage.remove(uploadedPaths);
@@ -106,7 +113,7 @@ class ItemService {
     final response = await _client
         .from('items')
         .select(
-      'id, title, description, item_condition, manufacture_year, '
+      'id, title, description, item_condition, manufacture_year, post_id, '
           'item_images(storage_key, position)',
     )
         .eq('owner_id', userId)

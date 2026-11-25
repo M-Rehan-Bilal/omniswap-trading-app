@@ -99,6 +99,9 @@ class UserService {
         throw SessionExpiredException();
       }
       return user;
+    } on AuthRetryableFetchException {
+      // Offline: keep the session and let the user retry.
+      rethrow;
     } on AuthException {
       await _clearStaleSession();
       throw SessionExpiredException();

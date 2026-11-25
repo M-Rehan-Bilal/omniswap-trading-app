@@ -49,6 +49,9 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
   bool _editing = false;
   bool _saving = false;
 
+  /// Posted items are view-only. The database enforces the same rule.
+  bool get _locked => widget.item.isPosted;
+
   @override
   void initState() {
     super.initState();
@@ -83,7 +86,13 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  void _startEditing() => setState(() => _editing = true);
+  void _startEditing() {
+    if (_locked) {
+      _showMessage('Remove the post to edit this item.');
+      return;
+    }
+    setState(() => _editing = true);
+  }
 
   void _cancelEditing() {
     setState(() {
@@ -108,6 +117,11 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
   }
 
   Future<void> _save() async {
+    if (_locked) {
+      _showMessage('Remove the post to edit this item.');
+      return;
+    }
+
     final title = _titleController.text.trim();
     final yearText = _yearController.text.trim();
 
@@ -129,8 +143,14 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
       }
     }
 
-    final keptPaths = [for (final photo in _photos) if (!photo.isNew) photo.path!];
-    final newPhotos = [for (final photo in _photos) if (photo.isNew) photo.bytes!];
+    final keptPaths = [
+      for (final photo in _photos)
+        if (!photo.isNew) photo.path!,
+    ];
+    final newPhotos = [
+      for (final photo in _photos)
+        if (photo.isNew) photo.bytes!,
+    ];
     final removedPaths = [
       for (final path in widget.item.photoPaths)
         if (!keptPaths.contains(path)) path,
@@ -180,7 +200,7 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
           style: const TextStyle(fontWeight: FontWeight.w800, color: kOmniInk),
         ),
         actions: [
-          if (!_editing)
+          if (!_editing && !_locked)
             TextButton(
               onPressed: _startEditing,
               child: const Text(
@@ -196,6 +216,7 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_locked) _buildLockedNotice(),
               _buildPhotos(canEdit),
               const SizedBox(height: 20),
               const _Label('Title'),
@@ -250,6 +271,31 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildLockedNotice() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kOmniYellow, width: 1.5),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.lock_outline, color: kOmniInk, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "This item is in a post, so it can't be edited. "
+                  'Remove the post to make changes.',
+              style: TextStyle(color: kOmniMuted, fontSize: 13),
+            ),
+          ),
+        ],
       ),
     );
   }

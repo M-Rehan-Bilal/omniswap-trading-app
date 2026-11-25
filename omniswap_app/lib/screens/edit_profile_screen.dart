@@ -1,12 +1,13 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../data/countries.dart';
 import '../models/user_profile.dart';
 import '../services/profile_service.dart';
-import '../data/countries.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key, this.service});
@@ -37,61 +38,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _avatarChanged = false;
   String? _loadError;
 
-  Widget _buildCountryField() {
-    return DropdownMenu<CountryInfo>(
-      controller: _countryController,
-      enabled: !_saving,
-      enableFilter: true,
-      enableSearch: true,
-      requestFocusOnTap: true,
-      expandedInsets: EdgeInsets.zero,
-      label: const Text('Country'),
-      hintText: 'Search your country',
-      dropdownMenuEntries: [
-        for (final country in kCountries)
-          DropdownMenuEntry<CountryInfo>(value: country, label: country.name),
-      ],
-      onSelected: _onCountrySelected,
-    );
-  }
-
-  Widget _buildCityField() {
-    final country = _country;
-    final enabled = country != null && !_saving;
-    final cities = country?.cities;
-
-    // Countries without a city list get a plain text field.
-    if (country == null || cities == null) {
-      return TextField(
-        controller: _cityController,
-        enabled: enabled,
-        textCapitalization: TextCapitalization.words,
-        decoration: InputDecoration(
-          labelText: 'City',
-          hintText: enabled ? 'Enter your city' : 'Select a country first',
-          border: const OutlineInputBorder(),
-        ),
-      );
-    }
-
-    // The key makes the dropdown start fresh when the country changes.
-    return DropdownMenu<String>(
-      key: ValueKey('city-${country.name}'),
-      controller: _cityController,
-      enabled: enabled,
-      enableFilter: true,
-      enableSearch: true,
-      requestFocusOnTap: true,
-      expandedInsets: EdgeInsets.zero,
-      label: const Text('City'),
-      hintText: 'Search your city',
-      dropdownMenuEntries: [
-        for (final city in cities)
-          DropdownMenuEntry<String>(value: city, label: city),
-      ],
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -120,6 +66,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   ];
 
   void _onFieldChanged() => setState(() {});
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Data
@@ -160,12 +113,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (!_validateCountryCity()) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    final whatsapp = _normalizedWhatsapp();
+    if (whatsapp == null) return;
+
     setState(() => _saving = true);
 
     try {
       final updated = await _service.updateMyProfile(
         displayName: _nameController.text.trim(),
-        whatsappNumber: _normalizePhone(_whatsappController.text),
+        whatsappNumber: whatsapp,
         country: _countryController.text.trim(),
         city: _cityController.text.trim(),
         area: _areaController.text.trim(),
@@ -177,14 +133,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
       Navigator.of(context).pop(updated);
     } on PostgrestException catch (e) {
-      if (!mounted) return;
       // 23505 = unique_violation (WhatsApp number already used by another account)
       final message = e.code == '23505'
           ? 'This WhatsApp number is already used by another account.'
           : 'Could not save your profile. Please try again.';
       _showError(message);
     } catch (_) {
-      if (!mounted) return;
       _showError('Could not save your profile. Please try again.');
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -220,7 +174,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (source == null || !mounted) return;
 
     try {
-      // Resize and compress here so uploads stay small (well under the 5 MB bucket limit).
+      // Resize and compress here so uploads stay small.
       final picked = await _picker.pickImage(
         source: source,
         maxWidth: 512,
@@ -232,7 +186,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final bytes = await picked.readAsBytes();
       await _uploadAvatar(bytes);
     } catch (_) {
-      if (mounted) _showError('Could not get that photo. Please try again.');
+      _showError('Could not get that photo. Please try again.');
     }
   }
 
@@ -247,7 +201,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _avatarChanged = true;
       });
     } catch (_) {
-      if (mounted) _showError('Could not upload your photo. Please try again.');
+      _showError('Could not upload your photo. Please try again.');
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
     }
@@ -261,7 +215,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final o = _original;
     if (o == null) return false;
     return _nameController.text.trim() != o.displayName ||
-        _normalizePhone(_whatsappController.text) != o.whatsappNumber ||
+        (_normalizedWhatsapp() ?? _whatsappController.text.trim()) !=
+            o.whatsappNumber ||
         _countryController.text.trim() != o.country ||
         _cityController.text.trim() != o.city ||
         _areaController.text.trim() != o.area;
@@ -286,12 +241,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
     );
     return discard ?? false;
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -334,11 +283,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return true;
   }
 
-  /// Removes spaces, dashes and brackets so "+92 300-123 4567" becomes "+923001234567".
-  static String _normalizePhone(String input) =>
-      input.replaceAll(RegExp(r'[\s\-()]'), '');
-
-  static final _whatsappRegex = RegExp(r'^\+[1-9][0-9]{1,14}$');
+  /// Same rules as sign-in: accepts 03001234567 or +923001234567 for the
+  /// selected country. Returns the international format, or null if invalid.
+  String? _normalizedWhatsapp() =>
+      _country?.normalizePhone(_whatsappController.text);
 
   String? _validateName(String? value) {
     final v = value?.trim() ?? '';
@@ -349,10 +297,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   String? _validateWhatsapp(String? value) {
-    final v = _normalizePhone(value ?? '');
-    if (v.isEmpty) return 'WhatsApp number is required';
-    if (!_whatsappRegex.hasMatch(v)) {
-      return 'Enter a valid number with country code, e.g. +923001234567';
+    final country = _country;
+    if (country == null) return 'Select your country first';
+    if ((value ?? '').trim().isEmpty) return 'WhatsApp number is required';
+    if (country.normalizePhone(value ?? '') == null) {
+      return country.phoneError;
     }
     return null;
   }
@@ -454,6 +403,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             _sectionTitle('Personal'),
             TextFormField(
               controller: _nameController,
+              enabled: !_saving,
               textCapitalization: TextCapitalization.words,
               maxLength: 60,
               decoration: const InputDecoration(
@@ -475,12 +425,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _whatsappController,
+              enabled: !_saving,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
+                LengthLimitingTextInputFormatter(18),
+              ],
+              decoration: InputDecoration(
                 labelText: 'WhatsApp number',
-                hintText: '+923001234567',
-                helperText: 'Traders contact you here. Include the country code.',
-                border: OutlineInputBorder(),
+                hintText: _country?.phoneHint ?? 'Select a country first',
+                helperText: 'Traders contact you here.',
+                border: const OutlineInputBorder(),
               ),
               validator: _validateWhatsapp,
             ),
@@ -493,6 +448,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _areaController,
+              enabled: !_saving,
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(
                 labelText: 'Area',
@@ -523,6 +479,61 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCountryField() {
+    return DropdownMenu<CountryInfo>(
+      controller: _countryController,
+      enabled: !_saving,
+      enableFilter: true,
+      enableSearch: true,
+      requestFocusOnTap: true,
+      expandedInsets: EdgeInsets.zero,
+      label: const Text('Country'),
+      hintText: 'Search your country',
+      dropdownMenuEntries: [
+        for (final country in kCountries)
+          DropdownMenuEntry<CountryInfo>(value: country, label: country.name),
+      ],
+      onSelected: _onCountrySelected,
+    );
+  }
+
+  Widget _buildCityField() {
+    final country = _country;
+    final enabled = country != null && !_saving;
+    final cities = country?.cities;
+
+    // Countries without a city list get a plain text field.
+    if (country == null || cities == null) {
+      return TextField(
+        controller: _cityController,
+        enabled: enabled,
+        textCapitalization: TextCapitalization.words,
+        decoration: InputDecoration(
+          labelText: 'City',
+          hintText: enabled ? 'Enter your city' : 'Select a country first',
+          border: const OutlineInputBorder(),
+        ),
+      );
+    }
+
+    // The key makes the dropdown start fresh when the country changes.
+    return DropdownMenu<String>(
+      key: ValueKey('city-${country.name}'),
+      controller: _cityController,
+      enabled: enabled,
+      enableFilter: true,
+      enableSearch: true,
+      requestFocusOnTap: true,
+      expandedInsets: EdgeInsets.zero,
+      label: const Text('City'),
+      hintText: 'Search your city',
+      dropdownMenuEntries: [
+        for (final city in cities)
+          DropdownMenuEntry<String>(value: city, label: city),
+      ],
     );
   }
 

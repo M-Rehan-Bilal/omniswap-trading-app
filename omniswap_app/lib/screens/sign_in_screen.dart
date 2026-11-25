@@ -7,13 +7,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/countries.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
-import 'home_screen.dart';
 
 const Color kSummerBlue = Color(0xFF0A27C8);
 const Color kSummerYellow = Color(0xFFFCF300);
 
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({super.key});
+  const SignInScreen({super.key, this.onProfileSaved});
+
+  /// Called after the profile is saved. The parent decides what to show next.
+  final Future<void> Function()? onProfileSaved;
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
@@ -173,11 +175,14 @@ class _SignInScreenState extends State<SignInScreen>
         city: form.city,
         area: form.area,
       );
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-            (_) => false,
+      await _users.saveProfile(
+        whatsappNumber: form.whatsappNumber,
+        country: form.country,
+        city: form.city,
+        area: form.area,
       );
+      if (!mounted) return;
+      await widget.onProfileSaved?.call();
     } catch (e) {
       debugPrint('Save profile error: $e');
       _showError('Could not save: $e');
@@ -282,7 +287,6 @@ class _SignInScreenState extends State<SignInScreen>
     );
   }
 
-  @override
   @override
   Widget build(BuildContext context) {
     final user = _user;
