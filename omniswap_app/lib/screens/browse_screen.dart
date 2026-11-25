@@ -1,29 +1,32 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/browse_service.dart';
+import '../services/profile_service.dart';
 import '../widgets/item_photo.dart';
 import '../widgets/omni_bottom_bar.dart';
 import 'home_screen.dart';
 import 'post_details_screen.dart';
-import '../services/profile_service.dart';
 
 class BrowseScreen extends StatefulWidget {
   const BrowseScreen({super.key});
   @override
   State<BrowseScreen> createState() => _BrowseScreenState();
 }
+
 class _BrowseScreenState extends State<BrowseScreen> {
-  final ProfileService _profileService = ProfileService();
-  String? _avatarUrl;
   static const _border = Color(0xFFD9E0EA);
+
   final BrowseService _service = BrowseService();
+  final ProfileService _profileService = ProfileService();
   final TextEditingController _searchController = TextEditingController();
+
   List<BrowsePost> _posts = [];
   bool _loading = true;
   String? _error;
   bool _newestFirst = true;
   Timer? _debounce;
   int _requestId = 0;
+  String? _avatarUrl;
 
   @override
   void initState() {
