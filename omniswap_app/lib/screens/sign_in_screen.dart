@@ -9,6 +9,9 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import 'home_screen.dart';
 
+const Color kSummerBlue = Color(0xFF0A27C8);
+const Color kSummerYellow = Color(0xFFFCF300);
+
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -280,95 +283,143 @@ class _SignInScreenState extends State<SignInScreen>
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     final user = _user;
 
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 40),
-              const CircleAvatar(
-                radius: 40,
-                child: Icon(Icons.swap_horiz, size: 40),
-              ),
-              const SizedBox(height: 12),
-              const Text('OmniSwap',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-              const Text('Trade what you have for what you want',
-                  textAlign: TextAlign.center),
-              const Divider(height: 40),
-
-              const Text('Create your account',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 16),
-
-              // Button before Google sign-in, badge after
-              if (user == null)
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _addGmail,
-                  icon: const Icon(Icons.g_mobiledata),
-                  label: const Text('Add Gmail'),
-                )
-              else
-                _GmailBadge(
-                  name: (user.userMetadata?['full_name'] ??
-                      user.userMetadata?['name'] ??
-                      '') as String,
-                  email: user.email ?? '',
-                  avatarUrl: (user.userMetadata?['avatar_url'] ??
-                      user.userMetadata?['picture']) as String?,
-                  onTap: _loading ? null : _addGmail,
-                ),
-              const SizedBox(height: 24),
-
-              const Text('Your location'),
-              const SizedBox(height: 8),
-              _buildCountryField(),
-              const SizedBox(height: 12),
-              _buildCityField(),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _areaController,
-                enabled: !_loading,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  labelText: 'Area',
-                  hintText: 'e.g. DHA Phase 5, Gulberg',
-                  border: OutlineInputBorder(),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Blue header: from the top of the screen down to the divider line.
+            Container(
+              color: kSummerBlue,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 40),
+                      const CircleAvatar(
+                        radius: 40,
+                        backgroundColor: kSummerYellow,
+                        child: Icon(
+                          Icons.swap_horiz,
+                          size: 40,
+                          color: kSummerBlue,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'OmniSwap',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Text(
+                        'Trade what you have for what you want',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 40),
+                      const Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: Colors.white54,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 24),
+            ),
 
-              const Text('Your WhatsApp number'),
-              const SizedBox(height: 8),
-              _buildPhoneRow(),
-              const SizedBox(height: 24),
+            // White form section below the blue header.
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 40),
 
-              ElevatedButton(
-                onPressed: _loading ? null : _createAccount,
-                child: _loading
-                    ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Create Account'),
+                    const Text('Create your account',
+                        style: TextStyle(
+                            fontSize: 22, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+
+                    // Button before Google sign-in, badge after
+                    if (user == null)
+                      OutlinedButton.icon(
+                        onPressed: _loading ? null : _addGmail,
+                        icon: const Icon(Icons.g_mobiledata),
+                        label: const Text('Add Gmail'),
+                      )
+                    else
+                      _GmailBadge(
+                        name: (user.userMetadata?['full_name'] ??
+                            user.userMetadata?['name'] ??
+                            '') as String,
+                        email: user.email ?? '',
+                        avatarUrl: (user.userMetadata?['avatar_url'] ??
+                            user.userMetadata?['picture']) as String?,
+                        onTap: _loading ? null : _addGmail,
+                      ),
+                    const SizedBox(height: 24),
+
+                    const Text('Your location'),
+                    const SizedBox(height: 8),
+                    _buildCountryField(),
+                    const SizedBox(height: 12),
+                    _buildCityField(),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _areaController,
+                      enabled: !_loading,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Area',
+                        hintText: 'e.g. DHA Phase 5, Gulberg',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    const Text('Your WhatsApp number'),
+                    const SizedBox(height: 8),
+                    _buildPhoneRow(),
+                    const SizedBox(height: 24),
+
+                    ElevatedButton(
+                      onPressed: _loading ? null : _createAccount,
+                      child: _loading
+                          ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child:
+                          CircularProgressIndicator(strokeWidth: 2))
+                          : const Text('Create Account'),
+                    ),
+
+                    const Divider(height: 48),
+                    const Text('Already have an account?',
+                        textAlign: TextAlign.center),
+                    TextButton(
+                      onPressed: _loading ? null : _addGmail,
+                      child: const Text('Sign in with Google'),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ),
-
-              const Divider(height: 48),
-              const Text('Already have an account?',
-                  textAlign: TextAlign.center),
-              TextButton(
-                onPressed: _loading ? null : _addGmail,
-                child: const Text('Sign in with Google'),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
