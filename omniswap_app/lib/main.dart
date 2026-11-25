@@ -26,7 +26,8 @@ Future<void> main() async {
   await Supabase.initialize(url: url, anonKey: anonKey);
 
   // Clear the saved login only if the server says it is no longer valid.
-  // If the device is offline, keep the session so the user is not signed out.
+  // If the device is offline or anything else fails, keep the session so
+  // the user is not signed out.
   final auth = Supabase.instance.client.auth;
   if (auth.currentSession != null) {
     try {
@@ -35,6 +36,8 @@ Future<void> main() async {
       // Offline or server unreachable: keep the local session.
     } on AuthException {
       await auth.signOut(scope: SignOutScope.local);
+    } catch (_) {
+      // Unexpected error: keep the local session rather than crash at startup.
     }
   }
 
@@ -51,14 +54,45 @@ class OmniSwapApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
       home: const AuthGate(),
-      routes: {
-        '/add-item': (_) => const AddItemScreen(),
-        '/browse': (_) => const BrowseScreen(),
-        '/inventory': (_) => const InventoryScreen(),
-        '/profile': (_) => const EditProfileScreen(),
-      },
+      onGenerateRoute: _onGenerateRoute,
     );
   }
+}
+
+/// Maps every named route to a screen. Routes whose screens are not built
+/// yet get a placeholder, so tapping them never crashes the app.
+Route<dynamic> _onGenerateRoute(RouteSettings settings) {
+  final Widget page;
+  switch (settings.name) {
+    case '/add-item':
+      page = const AddItemScreen();
+      break;
+    case '/browse':
+      page = const BrowseScreen();
+      break;
+    case '/inventory':
+      page = const InventoryScreen();
+      break;
+    case '/profile':
+      page = const EditProfileScreen();
+      break;
+    case '/trades':
+      page = const _ComingSoonScreen(title: 'Trades');
+      break;
+    case '/notifications':
+      page = const _ComingSoonScreen(title: 'Notifications');
+      break;
+    case '/make-offer':
+    // Takes a PostListing argument once the offer screen exists.
+      page = const _ComingSoonScreen(title: 'Make an Offer');
+      break;
+    default:
+      page = const _ComingSoonScreen(title: 'Page not found');
+  }
+  return MaterialPageRoute(
+    settings: settings,
+    builder: (_) => page,
+  );
 }
 
 /// Decides between the sign-in screen and Home.
@@ -140,6 +174,26 @@ class _AuthGateState extends State<AuthGate> {
 
     if (hasProfile) return const HomeScreen();
     return SignInScreen(onProfileSaved: _checkProfile);
+  }
+}
+
+/// Shown for routes whose screens are not built yet.
+class _ComingSoonScreen extends StatelessWidget {
+  const _ComingSoonScreen({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(
+        child: Text(
+          '$title is coming soon.',
+          style: const TextStyle(color: Colors.grey),
+        ),
+      ),
+    );
   }
 }
 

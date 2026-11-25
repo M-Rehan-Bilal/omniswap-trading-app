@@ -1,29 +1,38 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/browse_service.dart';
+import '../services/profile_service.dart';
 import '../widgets/item_photo.dart';
 import '../widgets/omni_bottom_bar.dart';
 import 'home_screen.dart';
+import 'post_details_screen.dart';
+
 class BrowseScreen extends StatefulWidget {
   const BrowseScreen({super.key});
   @override
   State<BrowseScreen> createState() => _BrowseScreenState();
 }
+
 class _BrowseScreenState extends State<BrowseScreen> {
   static const _border = Color(0xFFD9E0EA);
+
   final BrowseService _service = BrowseService();
+  final ProfileService _profileService = ProfileService();
   final TextEditingController _searchController = TextEditingController();
+
   List<BrowsePost> _posts = [];
   bool _loading = true;
   String? _error;
   bool _newestFirst = true;
   Timer? _debounce;
   int _requestId = 0;
+  String? _avatarUrl;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadAvatar();
   }
 
   @override
@@ -58,6 +67,16 @@ class _BrowseScreenState extends State<BrowseScreen> {
     }
   }
 
+  Future<void> _loadAvatar() async {
+    try {
+      final profile = await _profileService.fetchMyProfile();
+      if (!mounted) return;
+      setState(() => _avatarUrl = profile.avatarUrl);
+    } catch (_) {
+      // Keep the default icon if the profile can't be loaded.
+    }
+  }
+
   void _onSearchChanged(String _) {
     setState(() {});
     _debounce?.cancel();
@@ -78,10 +97,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   void _openPost(BrowsePost post) {
-    // TODO: open the Item detail screen (Laptop / owner / Wants / Make an Offer)
-    // e.g. Navigator.pushNamed(context, '/post-details', arguments: post.postId);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Item details coming soon.')),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PostDetailsScreen(postId: post.postId),
+      ),
     );
   }
 
@@ -120,8 +140,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
             onPressed: () {}, // TODO: notifications
           ),
           IconButton(
-            icon: const Icon(Icons.account_circle_outlined),
-            onPressed: () {}, // TODO: profile
+            tooltip: 'Profile',
+            onPressed: () =>
+                Navigator.pushNamed(context, '/profile').then((_) => _loadAvatar()),
+            icon: CircleAvatar(
+              radius: 16,
+              backgroundColor: kOmniBg,
+              backgroundImage:
+              _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+              child: _avatarUrl == null
+                  ? const Icon(Icons.account_circle_outlined, color: kOmniInk)
+                  : null,
+            ),
           ),
           const SizedBox(width: 4),
         ],
