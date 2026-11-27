@@ -1,14 +1,18 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import '../models/post_listing.dart';
 import '../services/browse_service.dart';
 import '../services/profile_service.dart';
-import '../widgets/item_photo.dart';
+import '../theme/omni_colors.dart';
+import '../widgets/listing_card.dart';
 import '../widgets/omni_bottom_bar.dart';
-import 'home_screen.dart';
 import 'post_details_screen.dart';
 
 class BrowseScreen extends StatefulWidget {
   const BrowseScreen({super.key});
+
   @override
   State<BrowseScreen> createState() => _BrowseScreenState();
 }
@@ -20,7 +24,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
   final ProfileService _profileService = ProfileService();
   final TextEditingController _searchController = TextEditingController();
 
-  List<BrowsePost> _posts = [];
+  List<PostListing> _posts = [];
+
+  // Signed photo URLs, keyed by storage path. Same approach as home.
+  final Map<String, String> _urlByPath = {};
+
   bool _loading = true;
   String? _error;
   bool _newestFirst = true;
@@ -57,6 +65,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
         _error = null;
         _loading = false;
       });
+
+      // Cards show immediately as placeholders, then photos fill in.
+      final urls = await _service.signCovers(posts);
+      if (!mounted || id != _requestId) return;
+      setState(() => _urlByPath.addAll(urls));
     } catch (e) {
       debugPrint('Browse load failed: $e');
       if (!mounted || id != _requestId) return;
@@ -75,6 +88,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
     } catch (_) {
       // Keep the default icon if the profile can't be loaded.
     }
+  }
+
+  String? _urlFor(PostListing post) {
+    final path = post.coverPath;
+    return path == null ? null : _urlByPath[path];
   }
 
   void _onSearchChanged(String _) {
@@ -96,7 +114,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _load();
   }
 
-  void _openPost(BrowsePost post) {
+  void _openPost(PostListing post) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -141,8 +159,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
           ),
           IconButton(
             tooltip: 'Profile',
-            onPressed: () =>
-                Navigator.pushNamed(context, '/profile').then((_) => _loadAvatar()),
+            onPressed: () => Navigator.pushNamed(context, '/profile')
+                .then((_) => _loadAvatar()),
             icon: CircleAvatar(
               radius: 16,
               backgroundColor: kOmniBg,
@@ -301,10 +319,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
               childAspectRatio: 0.78,
             ),
             itemCount: _posts.length,
-            itemBuilder: (_, i) => _PostCard(
-              post: _posts[i],
-              onTap: () => _openPost(_posts[i]),
-            ),
+            itemBuilder: (_, i) {
+              final post = _posts[i];
+              return ListingCard(
+                post: post,
+                imageUrl: _urlFor(post),
+                onTap: () => _openPost(post),
+              );
+            },
           ),
         ),
       ],
@@ -321,68 +343,6 @@ class _BrowseScreenState extends State<BrowseScreen> {
           child: Center(child: child),
         ),
       ],
-    );
-  }
-}
-
-class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post, required this.onTap});
-
-  final BrowsePost post;
-  final VoidCallback onTap;
-
-  String get _wantsText {
-    if (post.wants.isEmpty) return 'Open to offers';
-    final extra = post.wants.length - 1;
-    return extra > 0
-        ? 'Wants ${post.wants.first} +$extra'
-        : 'Wants ${post.wants.first}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: SizedBox(
-                width: double.infinity,
-                child: ItemPhoto(url: post.imageUrl),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    post.itemTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: kOmniInk,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _wantsText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: kOmniMuted, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

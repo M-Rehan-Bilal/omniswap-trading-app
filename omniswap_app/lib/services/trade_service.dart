@@ -116,23 +116,6 @@ class TradeService {
     return result;
   }
 
-  /// "Offers for you": active posts from other users that accept outside
-  /// wants, so they will take items that are not on their wanted list.
-  Future<List<PostListing>> fetchOffersForYou({int limit = 20}) async {
-    final rows = await _client
-        .from('posts')
-        .select(_postSelect)
-        .eq('status', 'active')
-        .eq('accepts_outside_wants', true)
-        .neq('owner_id', currentUserId)
-        .order('created_at', ascending: false)
-        .limit(limit);
-
-    return [
-      for (final row in rows) PostListing.fromRow(row as Map<String, dynamic>),
-    ];
-  }
-
   /// Creates a signed URL for each private photo path.
   /// Paths that fail are left out, and the card shows a placeholder.
   Future<Map<String, String>> signPaths(Iterable<String> paths) async {

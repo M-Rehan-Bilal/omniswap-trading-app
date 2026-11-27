@@ -6,6 +6,7 @@ import '../services/trade_service.dart';
 import '../theme/omni_colors.dart';
 import '../widgets/listing_card.dart';
 import 'all_listings_screen.dart';
+import 'post_details_screen.dart';
 
 // Other screens import the kOmni* colours from this file, so re-export them.
 export '../theme/omni_colors.dart';
@@ -25,7 +26,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // Listings
   List<PostListing> _myPosts = [];
   Map<String, List<PostListing>> _matchesByItemId = {};
-  List<PostListing> _offers = [];
   bool _loadingListings = true;
 
   // Signed photo URLs, keyed by storage path.
@@ -130,22 +130,15 @@ class _HomeScreenState extends State<HomeScreen> {
         matches[post.itemId] = found;
       }
 
-      // Offers load separately, so a failure here does not hide the matches.
-      var offers = <PostListing>[];
-      try {
-        offers = await _service.fetchOffersForYou();
-      } catch (_) {}
-
       if (!mounted) return;
       setState(() {
         _myPosts = posts;
         _matchesByItemId = matches;
-        _offers = offers;
         // Clear the selection if the selected item is no longer listed.
         if (_selectedItem == null) _selectedItemId = null;
       });
 
-      await _signCovers([..._matchPosts, ..._offers]);
+      await _signCovers(_matchPosts);
     } catch (_) {
       _showMessage('Could not load your listings. Pull down to retry.');
     } finally {
@@ -227,8 +220,14 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// Opens the product page of the post. Making an offer happens there.
   void _openPost(PostListing post) {
-    Navigator.pushNamed(context, '/make-offer', arguments: post);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PostDetailsScreen(postId: post.postId),
+      ),
+    );
   }
 
   void _openSeeAll(String title, List<PostListing> posts) {
@@ -324,19 +323,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: _openPost,
               ),
 
+              // Offers sent to you are not built yet, so this section stays
+              // empty rather than showing unrelated listings.
               const SizedBox(height: 24),
-              _SectionHeader(
-                title: 'Offers for you',
-                onSeeAll: () => _openSeeAll('Offers for you', _offers),
-              ),
+              const _SectionHeader(title: 'Offers for you'),
               const SizedBox(height: 12),
-              _CardRow(
-                posts: _offers,
-                emptyText: 'No offers yet.',
-                loading: _loadingListings && _offers.isEmpty,
-                urlFor: _urlFor,
-                onTap: _openPost,
-              ),
+              const _EmptyRow(text: 'Offers sent to you will appear here.'),
             ],
           ),
         ),
