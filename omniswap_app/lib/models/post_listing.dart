@@ -6,6 +6,7 @@ class PostedItem {
     required this.modelName,
     required this.modelKey,
     required this.condition,
+    required this.coverPath,
   });
 
   final String id;
@@ -14,13 +15,22 @@ class PostedItem {
   final String modelKey;
   final String condition; // new | like_new | good | fair | poor
 
+  /// Storage path of this item's first photo, or null if it has none.
+  final String? coverPath;
+
   factory PostedItem.fromRow(Map<String, dynamic> row) {
+    final images = [
+      for (final raw in (row['item_images'] as List<dynamic>? ?? const <dynamic>[]))
+        raw as Map<String, dynamic>,
+    ]..sort((a, b) => (a['position'] as int).compareTo(b['position'] as int));
+
     return PostedItem(
       id: row['id'] as String,
       title: row['title'] as String,
       modelName: row['model_name'] as String,
       modelKey: row['model_key'] as String,
       condition: row['item_condition'] as String,
+      coverPath: images.isEmpty ? null : images.first['storage_key'] as String,
     );
   }
 }
@@ -51,6 +61,9 @@ class PostListing {
 
   /// The first item, used for the icon and for single-item screens.
   PostedItem? get cover => items.isEmpty ? null : items.first;
+
+  /// Storage path of the cover photo, used to request a signed URL.
+  String? get coverPath => cover?.coverPath;
 
   /// "PS5" for one item, "PS5 + 2 more" for a bundle.
   String get displayTitle {

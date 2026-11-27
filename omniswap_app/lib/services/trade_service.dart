@@ -13,9 +13,14 @@ class TradeService {
 
   final SupabaseClient _client;
 
+  static const String _imageBucket = 'item-images';
+  static const int _signedUrlSeconds = 60 * 60;
+
+  /// Embeds each item's photo paths so the cover photo can be signed.
   static const String _postSelect =
       'id, owner_id, accepts_outside_wants, '
-      'items(id, title, model_name, model_key, item_condition), '
+      'items(id, title, model_name, model_key, item_condition, '
+      'item_images(position, storage_key)), '
       'wants(model_name, model_key)';
 
   String get currentUserId {
@@ -40,8 +45,6 @@ class TradeService {
     ];
   }
 
-  /// Direct trades: active posts from other users that hold an item matching
-  /// [wantText] and either want [haveModelKey] or accept outside wants.
   /// Direct trades: active posts from other users that hold an item matching
   /// [wantText] and either want one of [haveModelKeys] or accept outside wants.
   Future<List<PostListing>> findDirectTrades({
@@ -99,9 +102,7 @@ class TradeService {
 
     final rows = await _client
         .from('wants')
-        .select('model_key, posts!inner(id, owner_id, accepts_outside_wants, '
-        'items(id, title, model_name, model_key, item_condition), '
-        'wants(model_name, model_key))')
+        .select('model_key, posts!inner($_postSelect)')
         .inFilter('model_key', modelKeys.toList())
         .eq('posts.status', 'active')
         .neq('posts.owner_id', currentUserId);
@@ -113,5 +114,39 @@ class TradeService {
       result.putIfAbsent(wantKey, () => []).add(post);
     }
     return result;
+  }
+
+  /// "Offers for you": active posts from other users that accept outside
+  /// wants, so they will take items that are not on their wanted list.
+  Future<List<PostListing>> fetchOffersForYou({int limit = 20}) async {
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('status', 'active')
+        .eq('accepts_outside_wants', true)
+        .neq('owner_id', currentUserId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+
+    return [
+      for (final row in rows) PostListing.fromRow(row as Map<String, dynamic>),
+    ];
+  }
+
+  /// Creates a signed URL for each private photo path.
+  /// Paths that fail are left out, and the card shows a placeholder.
+  Future<Map<String, String>> signPaths(Iterable<String> paths) async {
+    final storage = _client.storage.from(_imageBucket);
+    final urls = <String, String>{};
+
+    await Future.wait(paths.toSet().map((path) async {
+      try {
+        urls[path] = await storage.createSignedUrl(path, _signedUrlSeconds);
+      } catch (_) {
+        // Skip this photo.
+      }
+    }));
+
+    return urls;
   }
 }

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../models/post_listing.dart';
-import '../services/trade_service.dart';
 import '../services/profile_service.dart';
+import '../services/trade_service.dart';
+import '../theme/omni_colors.dart';
+import '../widgets/listing_card.dart';
+import 'all_listings_screen.dart';
 
-const Color kOmniYellow = Color(0xFFFFE01B);
-const Color kOmniInk = Color(0xFF1B2433);
-const Color kOmniMuted = Color(0xFF8A94A6);
-const Color kOmniBg = Color(0xFFF4F7FB);
+// Other screens import the kOmni* colours from this file, so re-export them.
+export '../theme/omni_colors.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,12 +19,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TradeService _service = TradeService();
+  final ProfileService _profileService = ProfileService();
   final TextEditingController _wantController = TextEditingController();
 
-  // Listings and matches
+  // Listings
   List<PostListing> _myPosts = [];
   Map<String, List<PostListing>> _matchesByItemId = {};
+  List<PostListing> _offers = [];
   bool _loadingListings = true;
+
+  // Signed photo URLs, keyed by storage path.
+  final Map<String, String> _urlByPath = {};
 
   // Find Trade
   String? _selectedItemId;
@@ -32,18 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _resultsTitle = '';
   List<PostListing> _results = [];
 
-  final ProfileService _profileService = ProfileService();
   String? _avatarUrl;
-
-  Future<void> _loadAvatar() async {
-    try {
-      final profile = await _profileService.fetchMyProfile();
-      if (!mounted) return;
-      setState(() => _avatarUrl = profile.avatarUrl);
-    } catch (_) {
-      // Keep the default icon if the profile can't be loaded.
-    }
-  }
 
   @override
   void initState() {
@@ -58,6 +53,20 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  Future<void> _loadAvatar() async {
+    try {
+      final profile = await _profileService.fetchMyProfile();
+      if (!mounted) return;
+      setState(() => _avatarUrl = profile.avatarUrl);
+    } catch (_) {
+      // Keep the default icon if the profile can't be loaded.
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived data
+  // ---------------------------------------------------------------------------
+
   /// Unique inventory items (one item can be posted in several places).
   List<PostListing> get _myItems {
     final seen = <String>{};
@@ -70,6 +79,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return null;
   }
+
+  /// Every unique post that wants one of my items.
+  List<PostListing> get _matchPosts {
+    final seen = <String>{};
+    final out = <PostListing>[];
+    for (final list in _matchesByItemId.values) {
+      for (final post in list) {
+        if (seen.add(post.postId)) out.add(post);
+      }
+    }
+    return out;
+  }
+
+  String? _urlFor(PostListing post) {
+    final path = post.coverPath;
+    return path == null ? null : _urlByPath[path];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Data
+  // ---------------------------------------------------------------------------
 
   void _showMessage(String text) {
     if (!mounted) return;
@@ -100,18 +130,40 @@ class _HomeScreenState extends State<HomeScreen> {
         matches[post.itemId] = found;
       }
 
+      // Offers load separately, so a failure here does not hide the matches.
+      var offers = <PostListing>[];
+      try {
+        offers = await _service.fetchOffersForYou();
+      } catch (_) {}
+
       if (!mounted) return;
       setState(() {
         _myPosts = posts;
         _matchesByItemId = matches;
+        _offers = offers;
         // Clear the selection if the selected item is no longer listed.
         if (_selectedItem == null) _selectedItemId = null;
       });
+
+      await _signCovers([..._matchPosts, ..._offers]);
     } catch (_) {
       _showMessage('Could not load your listings. Pull down to retry.');
     } finally {
       if (mounted) setState(() => _loadingListings = false);
     }
+  }
+
+  /// Signs the cover photo of each post and stores the URLs for the cards.
+  Future<void> _signCovers(Iterable<PostListing> posts) async {
+    final paths = {
+      for (final post in posts)
+        if (post.coverPath != null) post.coverPath!,
+    };
+    if (paths.isEmpty) return;
+
+    final urls = await _service.signPaths(paths);
+    if (!mounted) return;
+    setState(() => _urlByPath.addAll(urls));
   }
 
   Future<void> _findTrade() async {
@@ -141,20 +193,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _resultsTitle = 'Trades for ${item.displayTitle} → $want';
         _hasSearched = true;
       });
+      await _signCovers(results);
     } catch (_) {
       _showMessage('Search failed. Check your connection and try again.');
     } finally {
       if (mounted) setState(() => _searching = false);
     }
-  }
-
-  void _showMatchesFor(PostListing item) {
-    setState(() {
-      _selectedItemId = item.itemId;
-      _results = _matchesByItemId[item.itemId] ?? [];
-      _resultsTitle = 'People who want your ${item.modelName}';
-      _hasSearched = true;
-    });
   }
 
   void _swapFields() {
@@ -183,9 +227,27 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _openOffer(PostListing post) {
+  void _openPost(PostListing post) {
     Navigator.pushNamed(context, '/make-offer', arguments: post);
   }
+
+  void _openSeeAll(String title, List<PostListing> posts) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AllListingsScreen(
+          title: title,
+          posts: posts,
+          urlFor: _urlFor,
+          onPostTap: _openPost,
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -223,19 +285,58 @@ class _HomeScreenState extends State<HomeScreen> {
         onRefresh: _loadListings,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildSwapCard(),
+
+              // Results appear only after Find Trade has run.
+              if (_hasSearched) ...[
+                const SizedBox(height: 24),
+                _SectionHeader(
+                  title: 'Results',
+                  subtitle: _resultsTitle,
+                ),
+                const SizedBox(height: 12),
+                _CardRow(
+                  posts: _results,
+                  emptyText: 'No direct trades found right now.',
+                  loading: false,
+                  urlFor: _urlFor,
+                  onTap: _openPost,
+                ),
+              ],
+
               const SizedBox(height: 24),
-              const _SectionTitle('Results'),
-              const SizedBox(height: 8),
-              _buildResults(),
+              _SectionHeader(
+                title: 'Matches for you',
+                onSeeAll: () => _openSeeAll('Matches for you', _matchPosts),
+              ),
+              const SizedBox(height: 12),
+              _CardRow(
+                posts: _matchPosts,
+                emptyText: _myItems.isEmpty
+                    ? 'Post an item to see who wants it.'
+                    : 'No matches for your listings yet.',
+                loading: _loadingListings && _matchPosts.isEmpty,
+                urlFor: _urlFor,
+                onTap: _openPost,
+              ),
+
               const SizedBox(height: 24),
-              const _SectionTitle('Matches for my listings'),
-              const SizedBox(height: 8),
-              _buildMyMatches(),
+              _SectionHeader(
+                title: 'Offers for you',
+                onSeeAll: () => _openSeeAll('Offers for you', _offers),
+              ),
+              const SizedBox(height: 12),
+              _CardRow(
+                posts: _offers,
+                emptyText: 'No offers yet.',
+                loading: _loadingListings && _offers.isEmpty,
+                urlFor: _urlFor,
+                onTap: _openPost,
+              ),
             ],
           ),
         ),
@@ -355,82 +456,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Results
-  // ---------------------------------------------------------------------------
-
-  Widget _buildResults() {
-    if (!_hasSearched) {
-      return const _EmptyBox(
-        icon: Icons.search,
-        message: 'Results will appear here',
-      );
-    }
-    if (_results.isEmpty) {
-      return const _EmptyBox(
-        icon: Icons.sync_alt,
-        message: 'No direct trades found right now.',
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            _resultsTitle,
-            style: const TextStyle(color: kOmniMuted, fontSize: 13),
-          ),
-        ),
-        ..._results.map(
-              (post) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _ResultCard(post: post, onTap: () => _openOffer(post)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Matches for my listings (horizontal cards)
-  // ---------------------------------------------------------------------------
-
-  Widget _buildMyMatches() {
-    if (_loadingListings && _myItems.isEmpty) {
-      return const SizedBox(
-        height: 130,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (_myItems.isEmpty) {
-      return const _EmptyBox(
-        icon: Icons.inventory_2_outlined,
-        message: 'Post an item to see who wants it.',
-      );
-    }
-
-    final items = _myItems;
-    return SizedBox(
-      height: 130,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          final count = _matchesByItemId[item.itemId]?.length ?? 0;
-          return _ListingMatchCard(
-            item: item,
-            matchCount: count,
-            onTap: () => _showMatchesFor(item),
-          );
-        },
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
   // Bottom navigation (Post button is the docked yellow FAB)
   // ---------------------------------------------------------------------------
 
@@ -471,7 +496,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // -----------------------------------------------------------------------------
-// Small reusable widgets and helpers
+// Helpers and widgets
 // -----------------------------------------------------------------------------
 
 BoxDecoration _cardDecoration() => BoxDecoration(
@@ -506,41 +531,59 @@ InputDecoration _inputDecoration({required String hint}) => InputDecoration(
   ),
 );
 
-IconData _iconFor(String modelName) {
-  final key = normalizeModelKey(modelName);
-  if (RegExp(r'^ps\d|playstation|xbox|nintendo|^switch$').hasMatch(key)) {
-    return Icons.sports_esports_outlined;
-  }
-  if (key.contains('watch')) return Icons.watch_outlined;
-  if (key.contains('iphone') || key.contains('phone') || key.contains('galaxy')) {
-    return Icons.phone_iphone;
-  }
-  if (key.contains('ipad') || key.contains('tablet')) return Icons.tablet_mac;
-  if (key.contains('laptop') || key.contains('macbook')) {
-    return Icons.laptop_mac;
-  }
-  return Icons.inventory_2_outlined;
-}
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, this.subtitle, this.onSeeAll});
 
-String _prettyCondition(String condition) {
-  final text = condition.replaceAll('_', ' ');
-  return text[0].toUpperCase() + text.substring(1);
-}
+  final String title;
+  final String? subtitle;
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
-
-  final String text;
+  /// When set, a "See all" button is shown on the right.
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-        color: kOmniInk,
-      ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: kOmniInk,
+                ),
+              ),
+              if (subtitle != null && subtitle!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: kOmniMuted, fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (onSeeAll != null)
+          TextButton(
+            onPressed: onSeeAll,
+            style: TextButton.styleFrom(
+              foregroundColor: kOmniBlue,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+            child: const Text(
+              'See all',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -564,167 +607,79 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
-class _EmptyBox extends StatelessWidget {
-  const _EmptyBox({required this.icon, required this.message});
+/// A horizontal row of listing cards, with loading and empty states.
+class _CardRow extends StatelessWidget {
+  const _CardRow({
+    required this.posts,
+    required this.emptyText,
+    required this.loading,
+    required this.urlFor,
+    required this.onTap,
+  });
 
-  final IconData icon;
-  final String message;
+  final List<PostListing> posts;
+  final String emptyText;
+  final bool loading;
+  final String? Function(PostListing post) urlFor;
+  final ValueChanged<PostListing> onTap;
+
+  static const double _height = 200;
+  static const double _cardWidth = 165;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const SizedBox(
+        height: _height,
+        child: Center(child: CircularProgressIndicator(color: kOmniBlue)),
+      );
+    }
+    if (posts.isEmpty) {
+      return _EmptyRow(text: emptyText);
+    }
+
+    return SizedBox(
+      height: _height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        itemCount: posts.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final post = posts[index];
+          return ListingCard(
+            post: post,
+            imageUrl: urlFor(post),
+            width: _cardWidth,
+            onTap: () => onTap(post),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EmptyRow extends StatelessWidget {
+  const _EmptyRow({required this.text});
+
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      height: 120,
+      height: 110,
+      alignment: Alignment.center,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD9E0EA)),
+        border: Border.all(color: kOmniBlue.withOpacity(0.3)),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 30, color: kOmniMuted),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: kOmniMuted, fontSize: 13),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ListingMatchCard extends StatelessWidget {
-  const _ListingMatchCard({
-    required this.item,
-    required this.matchCount,
-    required this.onTap,
-  });
-
-  final PostListing item;
-  final int matchCount;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final subtitle = matchCount == 0
-        ? 'No matches yet'
-        : '$matchCount ${matchCount == 1 ? 'match' : 'matches'}';
-
-    return SizedBox(
-      width: 160,
-      height: 130,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: kOmniBg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(_iconFor(item.modelName), color: kOmniInk),
-                ),
-                const Spacer(),
-                Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: kOmniInk,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: kOmniMuted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResultCard extends StatelessWidget {
-  const _ResultCard({required this.post, required this.onTap});
-
-  final PostListing post;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final wantsLine = post.acceptsOutsideWants
-        ? 'Open to any item'
-        : 'Wants: ${post.wantNames.join(', ')}';
-
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: kOmniBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(_iconFor(post.modelName), color: kOmniInk),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      post.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: kOmniInk,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Condition: ${_prettyCondition(post.condition)}',
-                      style: const TextStyle(color: kOmniMuted, fontSize: 12),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      wantsLine,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: kOmniMuted, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: kOmniMuted),
-            ],
-          ),
-        ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: kOmniMuted, fontSize: 13),
       ),
     );
   }
