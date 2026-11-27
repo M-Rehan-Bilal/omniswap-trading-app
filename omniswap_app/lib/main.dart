@@ -56,7 +56,16 @@ class OmniSwapApp extends StatelessWidget {
       title: 'OmniSwap',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
-      theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
+      theme: ThemeData(
+        colorSchemeSeed: Colors.teal,
+        useMaterial3: true,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: FadeOnlyPageTransitionsBuilder(),
+            TargetPlatform.iOS: FadeOnlyPageTransitionsBuilder(),
+          },
+        ),
+      ),
       home: const AuthGate(),
       onGenerateRoute: _onGenerateRoute,
     );
@@ -252,6 +261,27 @@ class _CheckFailed extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Fades pages in and out without sliding them.
+/// Because this does not extend the platform's Cupertino transition,
+/// the iOS edge-swipe drag is also disabled.
+class FadeOnlyPageTransitionsBuilder extends PageTransitionsBuilder {
+  const FadeOnlyPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+      PageRoute<T> route,
+      BuildContext context,
+      Animation<double> animation,
+      Animation<double> secondaryAnimation,
+      Widget child,
+      ) {
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      child: child,
     );
   }
 }
