@@ -35,8 +35,8 @@ class UserService {
 
     final meta = user.userMetadata ?? {};
     final email = user.email!;
-    final displayName =
-    (meta['full_name'] ?? meta['name'] ?? email.split('@').first) as String;
+    final fullName = (meta['full_name'] ?? meta['name'] ?? '').toString().trim();
+    final displayName = fullName.isNotEmpty ? fullName : email.split('@').first;
     final avatarUrl = meta['avatar_url'] ?? meta['picture'];
 
     final location = {

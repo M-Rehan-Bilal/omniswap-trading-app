@@ -12,6 +12,9 @@ import 'screens/inventory_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/user_service.dart';
 
+/// Lets code outside the widget tree (AuthGate) manage the app's routes.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -52,6 +55,7 @@ class OmniSwapApp extends StatelessWidget {
     return MaterialApp(
       title: 'OmniSwap',
       debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
       home: const AuthGate(),
       onGenerateRoute: _onGenerateRoute,
@@ -59,36 +63,57 @@ class OmniSwapApp extends StatelessWidget {
   }
 }
 
+/// Google sign-in returns the PKCE code as a query string on the route,
+/// e.g. "/?code=660f0f3f-...". Supabase reads the code itself, so the route
+/// only needs to show AuthGate.
+bool _isAuthCallback(String? name) {
+  if (name == null) return false;
+  return name.contains('code=') ||
+      name.contains('login-callback') ||
+      name.contains('access_token=');
+}
+
 /// Maps every named route to a screen. Routes whose screens are not built
 /// yet get a placeholder, so tapping them never crashes the app.
 Route<dynamic> _onGenerateRoute(RouteSettings settings) {
+  // Remove this line once the sign-in flow works.
+  debugPrint('onGenerateRoute name: ${settings.name}');
+
   final Widget page;
-  switch (settings.name) {
-    case '/add-item':
-      page = const AddItemScreen();
-      break;
-    case '/browse':
-      page = const BrowseScreen();
-      break;
-    case '/inventory':
-      page = const InventoryScreen();
-      break;
-    case '/profile':
-      page = const EditProfileScreen();
-      break;
-    case '/trades':
-      page = const _ComingSoonScreen(title: 'Trades');
-      break;
-    case '/notifications':
-      page = const _ComingSoonScreen(title: 'Notifications');
-      break;
-    case '/make-offer':
-    // Takes a PostListing argument once the offer screen exists.
-      page = const _ComingSoonScreen(title: 'Make an Offer');
-      break;
-    default:
-      page = const _ComingSoonScreen(title: 'Page not found');
+
+  if (_isAuthCallback(settings.name)) {
+    // Returning from Google sign-in. AuthGate checks the session and
+    // shows Home or the sign-in form, and then removes itself.
+    page = const AuthGate();
+  } else {
+    switch (settings.name) {
+      case '/add-item':
+        page = const AddItemScreen();
+        break;
+      case '/browse':
+        page = const BrowseScreen();
+        break;
+      case '/inventory':
+        page = const InventoryScreen();
+        break;
+      case '/profile':
+        page = const EditProfileScreen();
+        break;
+      case '/trades':
+        page = const _ComingSoonScreen(title: 'Trades');
+        break;
+      case '/notifications':
+        page = const _ComingSoonScreen(title: 'Notifications');
+        break;
+      case '/make-offer':
+      // Takes a PostListing argument once the offer screen exists.
+        page = const _ComingSoonScreen(title: 'Make an Offer');
+        break;
+      default:
+        page = const _ComingSoonScreen(title: 'Page not found');
+    }
   }
+
   return MaterialPageRoute(
     settings: settings,
     builder: (_) => page,
@@ -154,6 +179,12 @@ class _AuthGateState extends State<AuthGate> {
         _checkFailed = false;
       }
     });
+
+    // If this AuthGate was pushed by the sign-in redirect, remove it so
+    // the root AuthGate (which now shows Home) is visible again.
+    if (result == true) {
+      appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+    }
   }
 
   @override

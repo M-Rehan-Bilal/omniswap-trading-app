@@ -175,12 +175,6 @@ class _SignInScreenState extends State<SignInScreen>
         city: form.city,
         area: form.area,
       );
-      await _users.saveProfile(
-        whatsappNumber: form.whatsappNumber,
-        country: form.country,
-        city: form.city,
-        area: form.area,
-      );
       if (!mounted) return;
       await widget.onProfileSaved?.call();
     } catch (e) {

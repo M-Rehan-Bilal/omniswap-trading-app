@@ -163,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     String? newSelectedId;
     for (final item in _myItems) {
-      if (item.modelKey == typedWant) {
+      if (item.itemKeys.contains(typedWant)) {
         newSelectedId = item.itemId;
         break;
       }
@@ -290,7 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 .map(
                   (item) => DropdownMenuItem<String>(
                 value: item.itemId,
-                child: Text(item.modelName, overflow: TextOverflow.ellipsis),
+                child: Text(item.displayTitle, overflow: TextOverflow.ellipsis),
               ),
             )
                 .toList(),
@@ -508,7 +508,7 @@ InputDecoration _inputDecoration({required String hint}) => InputDecoration(
 
 IconData _iconFor(String modelName) {
   final key = normalizeModelKey(modelName);
-  if (key.contains('ps') || key.contains('xbox') || key.contains('switch')) {
+  if (RegExp(r'^ps\d|playstation|xbox|nintendo|^switch$').hasMatch(key)) {
     return Icons.sports_esports_outlined;
   }
   if (key.contains('watch')) return Icons.watch_outlined;

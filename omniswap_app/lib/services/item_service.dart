@@ -138,13 +138,24 @@ class ItemService {
     required ItemCondition condition,
     int? manufactureYear,
   }) async {
-    await _client.from('items').update({
+    final rows = await _client
+        .from('items')
+        .update({
       'title': title,
       'model_name': title,
       'description': description,
       'item_condition': condition.dbValue,
       'manufacture_year': manufactureYear,
-    }).eq('id', itemId);
+    })
+        .eq('id', itemId)
+        .eq('status', 'available')
+        .isFilter('post_id', null)
+        .select('id');
+
+    // RLS matches zero rows if the item was posted or changed elsewhere.
+    if (rows.isEmpty) {
+      throw StateError('This item is in a post now, so it cannot be edited.');
+    }
   }
 
   /// Changes an item's photos.
