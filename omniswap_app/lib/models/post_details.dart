@@ -1,4 +1,4 @@
-import 'item_condition.dart';
+import '../models/item_condition.dart';
 
 /// One item inside a post.
 class PostDetailItem {
@@ -26,7 +26,8 @@ class PostDetailItem {
   int get photoCount => photoUrls.length;
 }
 
-/// The public details of the post owner. No WhatsApp number or email.
+/// The public details of the post owner, plus the phone number used to
+/// contact them. The phone is null if it could not be loaded.
 class PostOwner {
   const PostOwner({
     required this.name,
@@ -34,6 +35,8 @@ class PostOwner {
     required this.rating,
     required this.area,
     required this.city,
+    required this.country,
+    required this.phone,
   });
 
   final String name;
@@ -41,6 +44,10 @@ class PostOwner {
   final double rating;
   final String area;
   final String city;
+  final String country;
+
+  /// WhatsApp number in international format, e.g. +923001234567.
+  final String? phone;
 
   String get location => '$area, $city';
 }

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/post_details.dart';
 import '../services/post_details_service.dart';
+import '../theme/app_colors.dart';
 import '../widgets/detail_widgets.dart';
 import '../widgets/item_photo.dart';
 import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
@@ -25,6 +28,7 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
   PostDetails? _post;
   bool _loading = true;
   String? _error;
+
   /// Which cover is showing in the carousel. The heading follows it.
   int _coverIndex = 0;
 
@@ -83,16 +87,18 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
           style: const TextStyle(fontWeight: FontWeight.w800, color: kOmniInk),
         ),
       ),
-      body: _buildBody(post),
+      body: _buildBody(post, isOwner),
       bottomNavigationBar: post != null && !isOwner
           ? MakeOfferBar(itemCount: post.items.length, onPressed: _makeOffer)
           : null,
     );
   }
 
-  Widget _buildBody(PostDetails? post) {
+  Widget _buildBody(PostDetails? post, bool isOwner) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
     }
     if (_error != null) {
       return CenteredMessage(text: _error!, onRetry: _load);
@@ -130,7 +136,7 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
             style: const TextStyle(color: kOmniMuted, fontSize: 14),
           ),
           const SizedBox(height: 16),
-          _SellerCard(owner: post.owner),
+          _SellerCard(owner: post.owner, showContact: !isOwner),
           const SizedBox(height: 24),
           SectionLabel(post.isBundle ? 'IN THIS BUNDLE' : 'ITEM'),
           const SizedBox(height: 8),
@@ -141,7 +147,7 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
             ),
             const SizedBox(height: 8),
           ],
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           const SectionLabel('WANTS IN RETURN'),
           const SizedBox(height: 8),
           _buildWants(post),
@@ -267,7 +273,358 @@ class _CoverCarouselState extends State<_CoverCarousel> {
 }
 
 // -----------------------------------------------------------------------------
-// Rows and cards
+// Seller card: name, rating and location, then the contact section.
+// -----------------------------------------------------------------------------
+
+class _SellerCard extends StatelessWidget {
+  const _SellerCard({required this.owner, required this.showContact});
+
+  final PostOwner owner;
+
+  /// False when the viewer owns the post, so they never see their own contact.
+  final bool showContact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SellerHeader(owner: owner),
+          if (showContact) ...[
+            const SizedBox(height: 18),
+            const Divider(height: 1, color: Color(0xFFE6EAF1)),
+            const SizedBox(height: 18),
+            const SectionLabel('CONTACT SELLER'),
+            const SizedBox(height: 12),
+            _ContactSection(phone: owner.phone),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SellerHeader extends StatelessWidget {
+  const _SellerHeader({required this.owner});
+
+  final PostOwner owner;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = owner.name.isEmpty ? '?' : owner.name[0].toUpperCase();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Yellow ring around the avatar, matching the profile screen.
+        Container(
+          padding: const EdgeInsets.all(2.5),
+          decoration: const BoxDecoration(
+            color: AppColors.accent,
+            shape: BoxShape.circle,
+          ),
+          child: CircleAvatar(
+            radius: 26,
+            backgroundColor: AppColors.primary.withOpacity(0.1),
+            backgroundImage:
+            owner.avatarUrl != null ? NetworkImage(owner.avatarUrl!) : null,
+            child: owner.avatarUrl == null
+                ? Text(
+              initial,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+              ),
+            )
+                : null,
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                owner.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: kOmniInk,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.place_rounded,
+                      size: 14, color: kOmniMuted),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      owner.location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: kOmniMuted, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        _RatingChip(rating: owner.rating),
+      ],
+    );
+  }
+}
+
+class _RatingChip extends StatelessWidget {
+  const _RatingChip({required this.rating});
+
+  final double rating;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star_rounded, size: 16, color: AppColors.primary),
+          const SizedBox(width: 3),
+          Text(
+            rating.toStringAsFixed(1),
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Contact: phone number with copy, then Call and WhatsApp buttons.
+// -----------------------------------------------------------------------------
+
+class _ContactSection extends StatelessWidget {
+  const _ContactSection({required this.phone});
+
+  final String? phone;
+
+  /// "+923001234567" becomes "+92 300 1234567". Other numbers are shown as-is.
+  static String _format(String number) {
+    final match = RegExp(r'^\+92(\d{3})(\d{7})$').firstMatch(number);
+    return match == null ? number : '+92 ${match[1]} ${match[2]}';
+  }
+
+  void _showSnack(BuildContext context, String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.primary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          content: Text(
+            text,
+            style: const TextStyle(color: AppColors.onPrimary),
+          ),
+        ),
+      );
+  }
+
+  Future<void> _copy(BuildContext context, String number) async {
+    await Clipboard.setData(ClipboardData(text: number));
+    await HapticFeedback.lightImpact();
+    if (!context.mounted) return;
+    _showSnack(context, 'Phone number copied');
+  }
+
+  Future<void> _call(BuildContext context, String number) async {
+    final ok = await launchUrl(Uri(scheme: 'tel', path: number));
+    if (!ok && context.mounted) {
+      _showSnack(context, 'Could not open the dialer.');
+    }
+  }
+
+  Future<void> _whatsApp(BuildContext context, String number) async {
+    // wa.me expects the number without the plus sign.
+    final uri = Uri.parse('https://wa.me/${number.replaceAll('+', '')}');
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      _showSnack(context, 'Could not open WhatsApp.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final number = phone;
+
+    if (number == null || number.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F6FA),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.lock_outline_rounded, size: 18, color: kOmniMuted),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Contact details are not available right now.',
+                style: TextStyle(color: kOmniMuted, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Phone number row. Tapping it copies the number.
+        Material(
+          color: AppColors.primary.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _copy(context, number),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.phone_rounded,
+                      size: 20,
+                      color: AppColors.onPrimary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _format(number),
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
+                            color: kOmniInk,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'WhatsApp number · Tap to copy',
+                          style: TextStyle(color: kOmniMuted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Copy number',
+                    onPressed: () => _copy(context, number),
+                    icon: const Icon(
+                      Icons.copy_rounded,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Action buttons.
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _call(context, number),
+                icon: const Icon(Icons.call_rounded, size: 18),
+                label: const Text('Call'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary, width: 1.5),
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: () => _whatsApp(context, number),
+                icon: const Icon(Icons.chat_rounded, size: 18),
+                label: const Text('Message on WhatsApp'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.onPrimary,
+                  elevation: 0,
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Rows, chips and labels
 // -----------------------------------------------------------------------------
 
 /// One item in the bundle: cover, title, condition, photo count, and an arrow.
@@ -331,83 +688,6 @@ class _BundleItemRow extends StatelessWidget {
   }
 }
 
-class _SellerCard extends StatelessWidget {
-  const _SellerCard({required this.owner});
-
-  final PostOwner owner;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = owner.name.isEmpty ? '?' : owner.name[0].toUpperCase();
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.all(Radius.circular(14)),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: const Color(0xFFCFE3FA),
-            backgroundImage: owner.avatarUrl != null
-                ? NetworkImage(owner.avatarUrl!)
-                : null,
-            child: owner.avatarUrl == null
-                ? Text(
-              initial,
-              style: const TextStyle(
-                color: kOmniInk,
-                fontWeight: FontWeight.w700,
-              ),
-            )
-                : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        owner.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: kOmniInk,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.star_rounded,
-                        size: 16, color: Colors.amber),
-                    const SizedBox(width: 2),
-                    Text(
-                      owner.rating.toStringAsFixed(1),
-                      style: const TextStyle(fontSize: 13, color: kOmniInk),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  owner.location,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: kOmniMuted, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OverlayLabel extends StatelessWidget {
   const _OverlayLabel(this.label);
 
@@ -453,7 +733,7 @@ class _WantChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF9FB0C8)),
+        border: Border.all(color: AppColors.primary.withOpacity(0.35)),
       ),
       child: Text(
         label,

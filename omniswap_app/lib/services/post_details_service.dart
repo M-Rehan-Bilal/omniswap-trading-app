@@ -22,6 +22,8 @@ class PostDetailsService {
 
   /// Loads one active post with all its items, photos, wants and owner.
   /// Returns null if the post does not exist or is no longer active.
+  /// Loads one active post with all its items, photos, wants and owner.
+  /// Returns null if the post does not exist or is no longer active.
   Future<PostDetails?> fetchPost(String postId) async {
     final row = await _client
         .from('posts')
@@ -47,9 +49,16 @@ class PostDetailsService {
     final ownerId = row['owner_id'] as String;
     final ownerRow = await _client
         .from('public_profiles')
-        .select('display_name, avatar_url, rating, area, city')
+        .select('display_name, avatar_url, rating, country, area, city')
         .eq('id', ownerId)
         .single();
+
+    // The phone number comes from a function that only returns it for
+    // active posts, to signed-in users.
+    final phone = await _client.rpc(
+      'get_post_contact',
+      params: {'p_post_id': postId},
+    ) as String?;
 
     return PostDetails(
       postId: row['id'] as String,
@@ -58,8 +67,10 @@ class PostDetailsService {
         name: ownerRow['display_name'] as String,
         avatarUrl: ownerRow['avatar_url'] as String?,
         rating: (ownerRow['rating'] as num).toDouble(),
+        country: ownerRow['country'] as String,
         area: ownerRow['area'] as String,
         city: ownerRow['city'] as String,
+        phone: phone,
       ),
       acceptsOutsideWants: row['accepts_outside_wants'] as bool,
       items: items,
