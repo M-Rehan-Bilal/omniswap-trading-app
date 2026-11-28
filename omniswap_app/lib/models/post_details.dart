@@ -61,6 +61,7 @@ class PostDetails {
     required this.acceptsOutsideWants,
     required this.items,
     required this.wants,
+    required this.wantGroups,
   });
 
   final String postId;
@@ -71,8 +72,12 @@ class PostDetails {
   /// Sorted by title. The first item is the cover of the whole post.
   final List<PostDetailItem> items;
 
-  /// Wanted model names, sorted by name.
+  /// Labels for display, one per wanted entry, e.g. "PS5" or "PS5 + Controller".
   final List<String> wants;
+
+  /// Each wanted entry as its item names, in the same order as [wants].
+  /// A bundle has two or more names and counts only when every name is offered.
+  final List<List<String>> wantGroups;
 
   bool get isBundle => items.length > 1;
 

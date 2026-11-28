@@ -10,10 +10,13 @@ import '../widgets/item_photo.dart';
 import 'review_offer_screen.dart';
 
 /// Step 1 of making an offer: pick the items from your inventory that you
-/// want to give for [post]. Offers always cover the whole post.
+/// want to give for [post].
 ///
-/// If the post owner is not open to other offers, EVERY offered item must
-/// match something on their "wants" list. Anything else disables Continue.
+/// Rules (create_offer in the database enforces the same ones):
+///  - If the owner is open to other offers, any items are accepted.
+///  - Otherwise every selected item must be on the wants list, and the
+///    selection must fully cover at least one wanted entry. A bundle counts
+///    only when every one of its items is selected.
 class MakeOfferScreen extends StatefulWidget {
   const MakeOfferScreen({super.key, required this.post, this.service});
 
@@ -46,23 +49,50 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Offer rules
+  // Wanted entries
   // ---------------------------------------------------------------------------
 
-  /// Wanted model keys, e.g. "iPhone 15" -> "iphone15".
+  /// Each wanted entry as its set of normalised keys. A single item has one
+  /// key, a bundle has several.
+  late final List<Set<String>> _groupKeys = [
+    for (final group in widget.post.wantGroups)
+      {for (final name in group) normalizeModelKey(name)},
+  ];
+
+  /// Every wanted key from every entry, used for the "is it wanted" check.
   late final Set<String> _wantKeys = {
-    for (final want in widget.post.wants) normalizeModelKey(want),
+    for (final keys in _groupKeys) ...keys,
   };
 
   bool get _openToOthers => widget.post.acceptsOutsideWants;
 
-  bool _isWanted(InventoryItem item) =>
-      _wantKeys.contains(normalizeModelKey(item.title));
+  /// Inventory items are matched by title. The title is saved as model_name
+  /// too, so the two keys are the same.
+  String _keyOf(InventoryItem item) => normalizeModelKey(item.title);
 
-  /// Wanted keys that the current selection satisfies.
-  Set<String> get _matchedKeys => {
-    for (final item in _selectedItems)
-      if (_isWanted(item)) normalizeModelKey(item.title),
+  bool _isWanted(InventoryItem item) => _wantKeys.contains(_keyOf(item));
+
+  // ---------------------------------------------------------------------------
+  // Selection rules
+  // ---------------------------------------------------------------------------
+
+  List<InventoryItem> get _selectedItems {
+    final byId = {for (final item in _inventory) item.id: item};
+    return [
+      for (final id in _selectedIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+  }
+
+  /// Keys of every selected item.
+  Set<String> get _selectedKeys => {
+    for (final item in _selectedItems) _keyOf(item),
+  };
+
+  /// Indexes of the wanted entries that the selection covers in full.
+  Set<int> get _coveredGroups => {
+    for (var i = 0; i < _groupKeys.length; i++)
+      if (_groupKeys[i].every(_selectedKeys.contains)) i,
   };
 
   /// Selected items that are NOT on the owner's wants list.
@@ -75,14 +105,12 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
   bool _isRejected(InventoryItem item) =>
       !_openToOthers && _selectedIds.contains(item.id) && !_isWanted(item);
 
-  /// Rules:
-  ///  - Something must be selected.
-  ///  - If the owner is open to other offers, anything goes.
-  ///  - Otherwise every selected item must be on the wants list.
+  /// Open posts accept anything. Closed posts need every selected item to be
+  /// wanted, and at least one wanted entry covered in full.
   bool get _isAcceptable {
     if (_selectedIds.isEmpty) return false;
     if (_openToOthers) return true;
-    return _unwantedSelected.isEmpty;
+    return _unwantedSelected.isEmpty && _coveredGroups.isNotEmpty;
   }
 
   /// Only shown after the user has picked something.
@@ -91,9 +119,14 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
   String? get _errorText {
     if (!_showRejection) return null;
     final owner = widget.post.owner.name;
-    final names = _unwantedSelected.map((i) => i.title).join(', ');
-    return '$owner only accepts the items they listed. '
-        'Remove $names to continue.';
+
+    if (_unwantedSelected.isNotEmpty) {
+      final names = _unwantedSelected.map((i) => i.title).join(', ');
+      return '$owner only accepts the items they listed. '
+          'Remove $names to continue.';
+    }
+    return '$owner only accepts whole wanted entries. '
+        'Select every item in one entry, such as all items in a bundle.';
   }
 
   // ---------------------------------------------------------------------------
@@ -132,14 +165,6 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
     setState(() {
       if (!_selectedIds.remove(item.id)) _selectedIds.add(item.id);
     });
-  }
-
-  List<InventoryItem> get _selectedItems {
-    final byId = {for (final item in _inventory) item.id: item};
-    return [
-      for (final id in _selectedIds)
-        if (byId[id] != null) byId[id]!,
-    ];
   }
 
   /// Opens the inventory so the user can add an item, then reloads.
@@ -210,9 +235,9 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
           _OfferingForCard(post: widget.post),
           const SizedBox(height: 16),
           _WantsCard(
-            wants: widget.post.wants,
+            groups: widget.post.wantGroups,
             openToOthers: _openToOthers,
-            matchedKeys: _matchedKeys,
+            selectedKeys: _selectedKeys,
           ),
           const SizedBox(height: 20),
           Row(
@@ -370,18 +395,21 @@ class _OfferedItemRow extends StatelessWidget {
   }
 }
 
-/// What the owner wants in return, and whether other offers are welcome.
-/// Wanted items that the current selection satisfies are highlighted.
+/// What the owner wants in return. Each entry is one chip. A bundle chip
+/// shows how many of its items are selected, and turns blue only when all
+/// of them are.
 class _WantsCard extends StatelessWidget {
   const _WantsCard({
-    required this.wants,
+    required this.groups,
     required this.openToOthers,
-    required this.matchedKeys,
+    required this.selectedKeys,
   });
 
-  final List<String> wants;
+  final List<List<String>> groups;
   final bool openToOthers;
-  final Set<String> matchedKeys;
+
+  /// Normalised keys of the selected items.
+  final Set<String> selectedKeys;
 
   @override
   Widget build(BuildContext context) {
@@ -398,7 +426,7 @@ class _WantsCard extends StatelessWidget {
         children: [
           const SectionLabel('WANTS IN RETURN'),
           const SizedBox(height: 8),
-          if (wants.isEmpty)
+          if (groups.isEmpty)
             Text(
               openToOthers ? 'Open to any item' : 'No wants listed',
               style: const TextStyle(color: kOmniMuted, fontSize: 13),
@@ -408,11 +436,8 @@ class _WantsCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final want in wants)
-                  _WantChip(
-                    label: want,
-                    matched: matchedKeys.contains(normalizeModelKey(want)),
-                  ),
+                for (final group in groups)
+                  _WantChip(names: group, selectedKeys: selectedKeys),
               ],
             ),
           const SizedBox(height: 10),
@@ -424,7 +449,8 @@ class _WantsCard extends StatelessWidget {
                 child: Text(
                   openToOthers
                       ? 'Also open to other offers'
-                      : 'Only accepting the items listed above',
+                      : 'Only accepting the entries above. '
+                      'A bundle needs all of its items.',
                   style: const TextStyle(color: kOmniMuted, fontSize: 13),
                 ),
               ),
@@ -437,19 +463,32 @@ class _WantsCard extends StatelessWidget {
 }
 
 class _WantChip extends StatelessWidget {
-  const _WantChip({required this.label, required this.matched});
+  const _WantChip({required this.names, required this.selectedKeys});
 
-  final String label;
-  final bool matched;
+  /// The item names in this entry. One name is a single item.
+  final List<String> names;
+  final Set<String> selectedKeys;
 
   @override
   Widget build(BuildContext context) {
+    final keys = [for (final name in names) normalizeModelKey(name)];
+    final have = keys.where(selectedKeys.contains).length;
+    final matched = have == keys.length;
+    final partial = have > 0 && !matched;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: matched ? kOmniSelectedBg : kOmniSurface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: matched ? kOmniBlue : kOmniBorder),
+        border: Border.all(
+          color: matched
+              ? kOmniBlue
+              : partial
+              ? kOmniYellow
+              : kOmniBorder,
+          width: partial || matched ? 1.5 : 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -458,10 +497,23 @@ class _WantChip extends StatelessWidget {
             const Icon(Icons.check, size: 14, color: kOmniBlue),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: const TextStyle(color: kOmniInk, fontSize: 13),
+          Flexible(
+            child: Text(
+              names.join(' + '),
+              style: const TextStyle(color: kOmniInk, fontSize: 13),
+            ),
           ),
+          if (keys.length > 1) ...[
+            const SizedBox(width: 6),
+            Text(
+              '$have/${keys.length}',
+              style: const TextStyle(
+                color: kOmniMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -483,7 +535,7 @@ class _InventoryTile extends StatelessWidget {
   final InventoryItem item;
   final bool selected;
 
-  /// True if the post owner listed this item as a want.
+  /// True if the post owner listed this item in any wanted entry.
   final bool wanted;
 
   /// True if this item is selected but the owner does not accept it.

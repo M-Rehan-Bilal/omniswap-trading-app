@@ -40,8 +40,7 @@ class PostDetailsService {
     // Load every item, and all of its photos, at the same time.
     final items = await Future.wait(rawItems.map(_toItem));
 
-    // Single wants and bundles, sorted by label. Order inside a bundle is
-    // not significant, so the labels are shown as stored.
+    // Single wants and bundles, sorted by label.
     final bundles = WantBundle.fromRows(_maps(row['wants']));
 
     // public_profiles hides the phone number and email.
@@ -53,7 +52,7 @@ class PostDetailsService {
         .single();
 
     // The phone number comes from a function that only returns it for
-    // active posts, to signed-in users.
+    // active posts, to signed-in users, or to a trade partner.
     // The owner does not need their own contact number, so skip the call.
     final isOwner = ownerId == currentUserId;
     final String? phone = isOwner
@@ -78,6 +77,7 @@ class PostDetailsService {
       acceptsOutsideWants: row['accepts_outside_wants'] as bool,
       items: items,
       wants: [for (final bundle in bundles) bundle.label],
+      wantGroups: [for (final bundle in bundles) bundle.names],
     );
   }
 
