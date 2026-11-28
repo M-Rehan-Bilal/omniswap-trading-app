@@ -6,6 +6,16 @@ import 'package:image_picker/image_picker.dart';
 
 import '../services/item_service.dart';
 import 'home_screen.dart'; // kOmniYellow, kOmniInk, kOmniMuted, kOmniBg
+import 'post_item_screen.dart';
+
+/// What this screen returns to its caller.
+/// [posted] is true when the item was posted straight away.
+class AddItemResult {
+  const AddItemResult({required this.itemId, required this.posted});
+
+  final String itemId;
+  final bool posted;
+}
 
 class AddItemScreen extends StatefulWidget {
   const AddItemScreen({super.key});
@@ -25,6 +35,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
   final List<Uint8List> _photos = [];
   ItemCondition? _condition;
   bool _saving = false;
+  bool _postingNow = false; // which button started the save
 
   bool get _canAddPhoto => _photos.length < ItemService.maxPhotos;
 
@@ -97,8 +108,8 @@ class _AddItemScreenState extends State<AddItemScreen> {
       if (!mounted) return;
       setState(() => _photos.add(bytes));
     } catch (_) {
-      final source_ = source == ImageSource.camera ? 'camera' : 'gallery';
-      _showMessage('Could not open the $source_. Check the app permissions.');
+      final sourceName = source == ImageSource.camera ? 'camera' : 'gallery';
+      _showMessage('Could not open the $sourceName. Check the app permissions.');
     }
   }
 
@@ -110,7 +121,9 @@ class _AddItemScreenState extends State<AddItemScreen> {
   // Save
   // ---------------------------------------------------------------------------
 
-  Future<void> _save() async {
+  /// Validates the form, saves the item, and either returns to the caller or
+  /// continues straight into the post form with the new item selected.
+  Future<void> _save({required bool postNow}) async {
     final title = _titleController.text.trim();
     final description = _descriptionController.text.trim();
     final yearText = _yearController.text.trim();
@@ -138,22 +151,47 @@ class _AddItemScreenState extends State<AddItemScreen> {
     }
 
     FocusScope.of(context).unfocus();
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _postingNow = postNow;
+    });
+
+    String? itemId;
     try {
-      final itemId = await _service.addItemToInventory(
+      itemId = await _service.addItemToInventory(
         title: title,
         description: description,
         condition: _condition!,
         manufactureYear: year,
         photos: List.unmodifiable(_photos),
       );
-      if (!mounted) return;
-      Navigator.pop(context, itemId); // Inventory shows this item in its banner
     } catch (_) {
       _showMessage('Could not save the item. Please try again.');
-    } finally {
-      if (mounted) setState(() => _saving = false);
     }
+
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    final savedId = itemId;
+    if (savedId == null) return;
+
+    if (!postNow) {
+      Navigator.pop(context, AddItemResult(itemId: savedId, posted: false));
+      return;
+    }
+
+    // Continue straight into the post form with this item selected.
+    final posted = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PostItemScreen(initialItemIds: [savedId]),
+      ),
+    );
+    if (!mounted) return;
+    Navigator.pop(
+      context,
+      AddItemResult(itemId: savedId, posted: posted == true),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -174,6 +212,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
         ),
       ),
       body: SafeArea(
+        bottom: false,
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Column(
@@ -226,34 +265,63 @@ class _AddItemScreenState extends State<AddItemScreen> {
                 ],
                 decoration: _inputDecoration(hint: 'e.g. 2021'),
               ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kOmniYellow,
+            ],
+          ),
+        ),
+      ),
+      bottomNavigationBar: _buildSaveBar(),
+    );
+  }
+
+  /// Two actions, pinned to the bottom so they are always in reach.
+  /// "Save & post" is the primary action, since posting is the usual next step.
+  Widget _buildSaveBar() {
+    return Container(
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _saving ? null : () => _save(postNow: false),
+                  style: OutlinedButton.styleFrom(
                     foregroundColor: kOmniInk,
-                    elevation: 0,
+                    side: const BorderSide(color: Color(0xFFD9E0EA)),
+                    minimumSize: const Size.fromHeight(52),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: _saving ? null : _save,
-                  child: _saving
-                      ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: kOmniInk,
-                    ),
-                  )
+                  child: _saving && !_postingNow
+                      ? _spinner(kOmniInk)
                       : const Text(
-                    'Add to Inventory',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
+                    'Save to inventory',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _saving ? null : () => _save(postNow: true),
+                  icon: const Icon(Icons.storefront_outlined, size: 18),
+                  label: _saving && _postingNow
+                      ? _spinner(kOmniInk)
+                      : const Text(
+                    'Save & post',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kOmniYellow,
+                    foregroundColor: kOmniInk,
+                    disabledBackgroundColor: kOmniYellow.withOpacity(0.45),
+                    elevation: 0,
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
@@ -264,6 +332,12 @@ class _AddItemScreenState extends State<AddItemScreen> {
       ),
     );
   }
+
+  Widget _spinner(Color color) => SizedBox(
+    height: 22,
+    width: 22,
+    child: CircularProgressIndicator(strokeWidth: 2.5, color: color),
+  );
 
   Widget _buildPhotoSection() {
     final tileCount = _photos.length + (_canAddPhoto ? 1 : 0);

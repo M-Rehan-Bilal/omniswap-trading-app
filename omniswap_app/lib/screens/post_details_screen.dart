@@ -2,18 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/offer_summary.dart';
 import '../models/post_details.dart';
+import '../services/offers_service.dart';
 import '../services/post_details_service.dart';
+import '../services/post_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/detail_widgets.dart';
 import '../widgets/item_photo.dart';
+import '../widgets/offer_bundle_card.dart';
 import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
 import 'item_detail_screen.dart';
-import '../services/post_service.dart';
 import 'make_offer_screen.dart';
+import 'offer_details_screen.dart';
 
 /// The bundle page: a summary of the whole post. Tapping an item opens
-/// that item's own page.
+/// that item's own page. Offers on the post are listed below the wants.
 class PostDetailsScreen extends StatefulWidget {
   const PostDetailsScreen({super.key, required this.postId});
 
@@ -27,8 +31,14 @@ class PostDetailsScreen extends StatefulWidget {
 class _PostDetailsScreenState extends State<PostDetailsScreen> {
   final PostDetailsService _service = PostDetailsService();
   final PostService _postService = PostService();
+  final OffersService _offersService = OffersService();
 
   PostDetails? _post;
+
+  /// Pending and accepted offers on this post. The owner sees all of them,
+  /// and anyone else sees only the offers they made.
+  List<OfferSummary> _offers = [];
+
   bool _loading = true;
   bool _removing = false;
   String? _error;
@@ -49,14 +59,35 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
     });
     try {
       final post = await _service.fetchPost(widget.postId);
+      final offers = await _fetchOffers();
       if (!mounted) return;
-      setState(() => _post = post);
+      setState(() {
+        _post = post;
+        _offers = offers;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _error = 'Could not load this item.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Offers are secondary, so a failure here leaves the list empty
+  /// instead of hiding the whole post.
+  Future<List<OfferSummary>> _fetchOffers() async {
+    try {
+      return await _offersService.fetchOffersForPost(widget.postId);
+    } catch (e) {
+      debugPrint('Post offers load failed: $e');
+      return const [];
+    }
+  }
+
+  Future<void> _reloadOffers() async {
+    final offers = await _fetchOffers();
+    if (!mounted) return;
+    setState(() => _offers = offers);
   }
 
   bool get _isOwner {
@@ -78,6 +109,20 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
       context,
       MaterialPageRoute(builder: (_) => MakeOfferScreen(post: post)),
     );
+  }
+
+  /// Opens one offer. If it was declined or cancelled there, reload the list.
+  Future<void> _openOffer(OfferSummary offer) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OfferDetailsScreen(
+          offer: offer,
+          service: _offersService,
+        ),
+      ),
+    );
+    if (changed == true) await _reloadOffers();
   }
 
   void _showSnack(String text) {
@@ -221,6 +266,8 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
           const SectionLabel('WANTS IN RETURN'),
           const SizedBox(height: 8),
           _buildWants(post),
+          const SizedBox(height: 24),
+          _buildOffers(isOwner),
         ],
       ),
     );
@@ -256,6 +303,49 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
               ),
             ],
           ),
+        ],
+      ],
+    );
+  }
+
+  /// The offers on this post. The owner sees every offer made to it.
+  /// Anyone else sees only the offers they made.
+  Widget _buildOffers(bool isOwner) {
+    final count = _offers.length;
+    final heading = isOwner ? 'OFFERS ($count)' : 'YOUR OFFERS ($count)';
+
+    if (_offers.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionLabel(heading),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              isOwner
+                  ? 'No offers on this post yet.'
+                  : "You haven't made an offer on this post.",
+              style: const TextStyle(color: kOmniMuted, fontSize: 13),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionLabel(heading),
+        const SizedBox(height: 8),
+        for (final offer in _offers) ...[
+          _OfferCard(offer: offer, onTap: () => _openOffer(offer)),
+          const SizedBox(height: 8),
         ],
       ],
     );
@@ -686,6 +776,148 @@ class _ContactSection extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Offers on this post
+// -----------------------------------------------------------------------------
+
+/// One offer: who it is from or to, its status, and the items offered with
+/// each item's photo, title and condition. Tapping opens the full offer.
+class _OfferCard extends StatelessWidget {
+  const _OfferCard({required this.offer, required this.onTap});
+
+  final OfferSummary offer;
+  final VoidCallback onTap;
+
+  /// Items shown in full. Any more are counted in a line below.
+  static const int _maxRows = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = offer.offered.take(_maxRows).toList();
+    final hidden = offer.offered.length - shown.length;
+    final who = offer.isSent
+        ? 'Your offer to ${offer.otherName}'
+        : 'From ${offer.otherName}';
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      who,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: kOmniInk,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OfferStatusBadge(offer.status),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Sent ${offer.createdLabel}',
+                style: const TextStyle(color: kOmniMuted, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              if (offer.offered.isEmpty)
+                const Text(
+                  'These items are no longer available.',
+                  style: TextStyle(color: kOmniMuted, fontSize: 13),
+                )
+              else ...[
+                for (final entry in shown) ...[
+                  _OfferedItemLine(entry: entry),
+                  const SizedBox(height: 8),
+                ],
+                if (hidden > 0)
+                  Text(
+                    '+ $hidden more ${hidden == 1 ? 'item' : 'items'}',
+                    style: const TextStyle(color: kOmniMuted, fontSize: 12),
+                  ),
+              ],
+              const SizedBox(height: 4),
+              const Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'View offer',
+                  style: TextStyle(
+                    color: kOmniMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One offered item: photo, title and condition.
+class _OfferedItemLine extends StatelessWidget {
+  const _OfferedItemLine({required this.entry});
+
+  final OfferEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 44,
+          height: 44,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: ItemPhoto(url: entry.url, iconSize: 18),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                entry.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: kOmniInk,
+                ),
+              ),
+              if (entry.conditionLabel != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  entry.conditionLabel!,
+                  style: const TextStyle(color: kOmniMuted, fontSize: 12),
+                ),
+              ],
+            ],
+          ),
         ),
       ],
     );

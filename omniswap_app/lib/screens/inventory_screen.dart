@@ -5,11 +5,12 @@ import '../services/item_service.dart';
 import '../services/post_service.dart';
 import '../widgets/item_photo.dart';
 import '../widgets/omni_bottom_bar.dart';
-import 'home_screen.dart'; // kOmniYellow, kOmniInk, kOmniMuted, kOmniBg
-import 'item_details_screen.dart';
 import 'add_item_screen.dart';
-import 'post_item_screen.dart';
+import 'home_screen.dart'; // kOmniYellow, kOmniInk, kOmniMuted, kOmniBg, kOmniBlue
+import 'item_details_screen.dart';
 import 'post_details_screen.dart';
+import 'post_item_screen.dart';
+import '../widgets/listing_card.dart';
 
 enum _ItemAction { viewPost, details, removePost }
 
@@ -30,6 +31,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   String? _bannerTitle;
   String? _bannerSubtitle;
+
+  int get _unpostedCount => _items.where((i) => !i.isPosted).length;
 
   @override
   void initState() {
@@ -86,32 +89,45 @@ class _InventoryScreenState extends State<InventoryScreen> {
   // ---------------------------------------------------------------------------
 
   Future<void> _openAddItem() async {
-    final addedId = await Navigator.push<String>(
+    final result = await Navigator.push<AddItemResult>(
       context,
       MaterialPageRoute(builder: (_) => const AddItemScreen()),
     );
-    if (addedId == null || !mounted) return;
+    if (result == null || !mounted) return;
 
     await _load();
-    final added = _itemById(addedId);
+    if (result.posted) {
+      _showBanner(
+        title: 'Post created',
+        subtitle: 'Other traders can now see it on Home',
+      );
+      return;
+    }
+    final added = _itemById(result.itemId);
     if (added != null) {
       _showBanner(title: added.title, subtitle: 'Added to your inventory');
     }
   }
 
-  Future<void> _openPost() async {
+  /// Opens the Post an Item screen. [itemIds] pre-selects items; an empty
+  /// list opens the form with nothing chosen, so the user picks in the form.
+  Future<void> _openPost({List<String> itemIds = const []}) async {
     _clearBanner();
     final posted = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => const PostItemScreen()),
+      MaterialPageRoute(
+        builder: (_) => PostItemScreen(initialItemIds: itemIds),
+      ),
     );
-    if (posted != true || !mounted) return;
+    if (!mounted) return;
 
     await _load();
-    _showBanner(
-      title: 'Post created',
-      subtitle: 'Other traders can now see it on Home',
-    );
+    if (posted == true) {
+      _showBanner(
+        title: 'Post created',
+        subtitle: 'Other traders can now see it on Home',
+      );
+    }
   }
 
   Future<void> _openDetails(InventoryItem item) async {
@@ -122,10 +138,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
     if (changed == true) _load();
   }
 
-  Future<void> _onItemTap(InventoryItem item) async {
+  Future<void> _onCardTap(InventoryItem item) async {
     _clearBanner();
 
-    // Not posted: go straight to the item's details, as before.
     if (!item.isPosted) {
       await _openDetails(item);
       return;
@@ -295,23 +310,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
           'My Inventory',
           style: TextStyle(fontWeight: FontWeight.w800, color: kOmniInk),
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: OutlinedButton.icon(
-              onPressed: _openAddItem,
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: kOmniInk,
-                side: const BorderSide(color: Color(0xFFD9E0EA)),
-                shape: const StadiumBorder(),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: _load,
@@ -330,11 +328,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
               sliver: SliverToBoxAdapter(child: _buildInfoNote()),
             ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              sliver: SliverToBoxAdapter(child: _buildPostButton()),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 110)),
+            // Room so the last row is never hidden behind the bottom bar.
+            const SliverToBoxAdapter(child: SizedBox(height: 120)),
           ],
         ),
       ),
@@ -366,6 +361,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ),
           const SizedBox(height: 16),
         ],
+        _PostEntryCard(
+          unpostedCount: _unpostedCount,
+          onTap: () => _openPost(),
+        ),
+        const SizedBox(height: 20),
         Text(
           '$count ${count == 1 ? 'item' : 'items'}',
           style: const TextStyle(
@@ -402,15 +402,31 @@ class _InventoryScreenState extends State<InventoryScreen> {
       );
     }
 
+    if (_items.isEmpty) {
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: Text(
+              'No items yet. Tap + to add your first item.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: kOmniMuted),
+          ),
+        ),
+      );
+    }
+
     return SliverGrid.count(
       crossAxisCount: 2,
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
-      childAspectRatio: 0.82,
+      childAspectRatio: 0.78, // same card size as Home and Browse
       children: [
         for (final item in _items)
-          _ItemCard(item: item, onTap: () => _onItemTap(item)),
-        _AddItemTile(onTap: _openAddItem),
+          ItemListingCard(
+            item: item,
+            onTap: () => _onCardTap(item),
+            onPost: () => _openPost(itemIds: [item.id]),
+          ),
       ],
     );
   }
@@ -438,141 +454,85 @@ class _InventoryScreenState extends State<InventoryScreen> {
       ),
     );
   }
-
-  Widget _buildPostButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: OutlinedButton(
-        onPressed: _openPost,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: kOmniInk,
-          backgroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFFD9E0EA)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: const Text(
-          '+ Post',
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-        ),
-      ),
-    );
-  }
 }
 
-class _ItemCard extends StatelessWidget {
-  const _ItemCard({required this.item, required this.onTap});
+// -----------------------------------------------------------------------------
+// Small widgets
+// -----------------------------------------------------------------------------
 
-  final InventoryItem item;
+/// The entry point for posting. Opens the Post an Item screen, where the user
+/// chooses items, wants (single or bundle), and the outside-wants switch.
+class _PostEntryCard extends StatelessWidget {
+  const _PostEntryCard({required this.unpostedCount, required this.onTap});
+
+  final int unpostedCount;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = unpostedCount > 0;
+
+    final subtitle = !enabled
+        ? 'Add an item first to create a post'
+        : unpostedCount == 1
+        ? 'Post this item, and choose what you want back'
+        : 'Bundle items together and choose what you want back';
+
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      clipBehavior: Clip.antiAlias,
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(child: ItemPhoto(url: item.coverUrl)),
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: _TagBadge(
-                      label: item.condition.label,
-                      background: Colors.white,
-                    ),
-                  ),
-                  if (item.isPosted)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: _TagBadge(
-                        label: 'Posted',
-                        background: kOmniYellow,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Text(
-                item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: kOmniInk,
+        borderRadius: BorderRadius.circular(16),
+        onTap: enabled ? onTap : null,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: kOmniBorder),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: enabled ? kOmniYellow : kOmniBg,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.storefront_outlined,
+                  color: enabled ? kOmniInk : kOmniMuted,
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TagBadge extends StatelessWidget {
-  const _TagBadge({required this.label, required this.background});
-
-  final String label;
-  final Color background;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: kOmniInk,
-        ),
-      ),
-    );
-  }
-}
-
-class _AddItemTile extends StatelessWidget {
-  const _AddItemTile({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFB8C4D6), width: 1.5),
-          ),
-          child: const Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.add, size: 28, color: kOmniMuted),
-              SizedBox(height: 6),
-              Text(
-                'Add item',
-                style: TextStyle(color: kOmniMuted, fontSize: 13),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Create a post',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: enabled ? kOmniInk : kOmniMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: kOmniMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: enabled ? kOmniBlue : kOmniMuted,
               ),
             ],
           ),
