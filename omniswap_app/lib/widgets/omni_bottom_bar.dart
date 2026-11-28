@@ -12,16 +12,20 @@ class OmniBottomBar extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onSelect,
+    this.notched = true,
   });
 
   final OmniTab selected;
   final ValueChanged<OmniTab> onSelect;
 
+  /// True when a round docked FAB sits in the middle of the bar.
+  final bool notched;
+
   @override
   Widget build(BuildContext context) {
     return BottomAppBar(
-      shape: const CircularNotchedRectangle(),
-      notchMargin: 8,
+      shape: notched ? const CircularNotchedRectangle() : null,
+      notchMargin: notched ? 8 : 0,
       color: Colors.white,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -38,7 +42,7 @@ class OmniBottomBar extends StatelessWidget {
             isSelected: selected == OmniTab.browse,
             onTap: () => onSelect(OmniTab.browse),
           ),
-          const SizedBox(width: 56), // space for the docked + button
+          const SizedBox(width: 56), // space in the middle, kept for the FAB
           _OmniNavItem(
             icon: Icons.shopping_cart_outlined,
             label: 'Inventory',

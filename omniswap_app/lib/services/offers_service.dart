@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/item_condition.dart';
 import '../models/offer_summary.dart';
 import 'offer_service.dart' show OfferException;
 
@@ -14,6 +15,10 @@ class OffersService {
   static const String _imageBucket = 'item-images';
   static const int _signedUrlSeconds = 60 * 60;
 
+  static const String _offerSelect =
+      'id, offerer_id, target_post_id, target_owner_id, status, created_at, '
+      'offer_items(item_id)';
+
   String get currentUserId {
     final user = _client.auth.currentUser;
     if (user == null) throw StateError('No signed-in user.');
@@ -23,16 +28,64 @@ class OffersService {
   /// Every offer I sent or received, newest first.
   /// Row level security already limits the rows to my own offers.
   Future<List<OfferSummary>> fetchOffers() async {
-    final me = currentUserId;
-
     final response = await _client
         .from('offers')
-        .select('id, offerer_id, target_post_id, target_owner_id, status, '
-        'created_at, offer_items(item_id)')
+        .select(_offerSelect)
         .order('created_at', ascending: false);
 
+    return _summarize(response as List);
+  }
+
+  /// Pending and accepted offers made on one post, newest first.
+  /// Row level security shows the post owner every offer made to the post,
+  /// and anyone else only the offers they made themselves.
+  /// Declined and cancelled offers are left out, because their items are
+  /// no longer visible to the parties.
+  Future<List<OfferSummary>> fetchOffersForPost(String postId) async {
+    final response = await _client
+        .from('offers')
+        .select(_offerSelect)
+        .eq('target_post_id', postId)
+        .inFilter('status', ['pending', 'accepted'])
+        .order('created_at', ascending: false);
+
+    return _summarize(response as List);
+  }
+
+  /// I made this offer and now take it back.
+  Future<void> cancelOffer(String offerId) =>
+      _closeOffer(offerId, 'cancelled');
+
+  /// Someone made this offer to me and I turn it down.
+  Future<void> declineOffer(String offerId) =>
+      _closeOffer(offerId, 'declined');
+
+  Future<void> _closeOffer(String offerId, String status) async {
+    final rows = await _client
+        .from('offers')
+        .update({
+      'status': status,
+      'responded_at': DateTime.now().toUtc().toIso8601String(),
+    })
+        .eq('id', offerId)
+        .eq('status', 'pending')
+        .select('id');
+
+    // Row level security matches nothing if the offer is no longer pending.
+    if (rows.isEmpty) {
+      throw const OfferException('This offer can no longer be changed.');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared mapping from offer rows to summaries
+  // ---------------------------------------------------------------------------
+
+  Future<List<OfferSummary>> _summarize(List<dynamic> response) async {
+    final me = currentUserId;
+
     final rows = [
-      for (final row in response as List) row as Map<String, dynamic>,
+      for (final row in response) row as Map<String, dynamic>,
     ];
     if (rows.isEmpty) return [];
 
@@ -65,6 +118,7 @@ class OffersService {
     OfferEntry entry(_RawItem raw) => OfferEntry(
       title: raw.title,
       url: raw.coverPath == null ? null : urls[raw.coverPath],
+      conditionLabel: raw.conditionLabel,
     );
 
     final summaries = <OfferSummary>[];
@@ -100,31 +154,6 @@ class OffersService {
     return summaries;
   }
 
-  /// I made this offer and now take it back.
-  Future<void> cancelOffer(String offerId) =>
-      _closeOffer(offerId, 'cancelled');
-
-  /// Someone made this offer to me and I turn it down.
-  Future<void> declineOffer(String offerId) =>
-      _closeOffer(offerId, 'declined');
-
-  Future<void> _closeOffer(String offerId, String status) async {
-    final rows = await _client
-        .from('offers')
-        .update({
-      'status': status,
-      'responded_at': DateTime.now().toUtc().toIso8601String(),
-    })
-        .eq('id', offerId)
-        .eq('status', 'pending')
-        .select('id');
-
-    // Row level security matches nothing if the offer is no longer pending.
-    if (rows.isEmpty) {
-      throw const OfferException('This offer can no longer be changed.');
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -133,12 +162,16 @@ class OffersService {
     if (ids.isEmpty) return {};
     final rows = await _client
         .from('items')
-        .select('id, title, item_images(position, storage_key)')
+        .select('id, title, item_condition, item_images(position, storage_key)')
         .inFilter('id', ids.toList());
 
     return {
       for (final row in rows)
-        row['id'] as String: _RawItem(row['title'] as String, _cover(row)),
+        row['id'] as String: _RawItem(
+          row['title'] as String,
+          _cover(row),
+          _conditionLabel(row['item_condition']),
+        ),
     };
   }
 
@@ -148,7 +181,8 @@ class OffersService {
     if (ids.isEmpty) return {};
     final rows = await _client
         .from('posts')
-        .select('id, items(id, title, item_images(position, storage_key))')
+        .select('id, items(id, title, item_condition, '
+        'item_images(position, storage_key))')
         .inFilter('id', ids.toList());
 
     final result = <String, List<_RawItem>>{};
@@ -158,6 +192,7 @@ class OffersService {
           _RawItem(
             (raw as Map<String, dynamic>)['title'] as String,
             _cover(raw),
+            _conditionLabel(raw['item_condition']),
           ),
       ]..sort(
               (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
@@ -202,11 +237,15 @@ class OffersService {
     ]..sort((a, b) => (a['position'] as int).compareTo(b['position'] as int));
     return images.isEmpty ? null : images.first['storage_key'] as String;
   }
+
+  static String? _conditionLabel(Object? value) =>
+      value == null ? null : ItemCondition.fromDb(value as String).label;
 }
 
 class _RawItem {
-  const _RawItem(this.title, this.coverPath);
+  const _RawItem(this.title, this.coverPath, this.conditionLabel);
 
   final String title;
   final String? coverPath;
+  final String? conditionLabel;
 }

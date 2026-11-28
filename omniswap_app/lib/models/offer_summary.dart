@@ -15,12 +15,18 @@ enum OfferStatus {
   );
 }
 
-/// One item shown as a tile: its title and a signed cover-photo URL.
+/// One item shown in an offer: its title, a signed cover-photo URL and
+/// its condition, e.g. "Like New".
 class OfferEntry {
-  const OfferEntry({required this.title, required this.url});
+  const OfferEntry({
+    required this.title,
+    required this.url,
+    this.conditionLabel,
+  });
 
   final String title;
   final String? url;
+  final String? conditionLabel;
 }
 
 /// One offer, ready to show in the My Offers list.

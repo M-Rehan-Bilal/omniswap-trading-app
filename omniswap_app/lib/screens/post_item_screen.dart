@@ -14,7 +14,10 @@ import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
 enum _WantMode { single, bundle }
 
 class PostItemScreen extends StatefulWidget {
-  const PostItemScreen({super.key});
+  const PostItemScreen({super.key, this.initialItemIds = const []});
+
+  /// Items to pre-select when the screen opens (at most kMaxItemsPerPost are used).
+  final List<String> initialItemIds;
 
   @override
   State<PostItemScreen> createState() => _PostItemScreenState();
@@ -88,6 +91,18 @@ class _PostItemScreenState extends State<PostItemScreen> {
     });
     try {
       await _syncInventory();
+
+      // Pre-select the items passed in, skipping any that cannot be posted.
+      if (_selectedIds.isEmpty) {
+        for (final id in widget.initialItemIds) {
+          if (_selectedIds.length >= kMaxItemsPerPost) break;
+          final item = _itemById(id);
+          if (item != null && !item.isPosted && !_selectedIds.contains(id)) {
+            _selectedIds.add(id);
+          }
+        }
+      }
+
       if (!mounted) return;
       setState(() => _loading = false);
     } catch (_) {
