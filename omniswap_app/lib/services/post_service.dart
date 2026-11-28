@@ -19,12 +19,13 @@ class PostService {
 
   final SupabaseClient _client;
 
-  /// Creates one post for a bundle of items, with its wants.
+  /// Creates one post for a bundle of items, with its wanted entries.
+  /// Each inner list in [wantGroups] is one entry: a single name, or a bundle.
   /// Returns the new post id.
   Future<String> createPost({
     required List<String> itemIds,
     required bool acceptsOutsideWants,
-    required List<String> wants,
+    required List<List<String>> wantGroups,
   }) async {
     if (itemIds.isEmpty) {
       throw const PostException('Choose at least one item to post.');
@@ -36,11 +37,13 @@ class PostService {
       throw const PostException('The same item was selected more than once.');
     }
 
-    final cleanWants = cleanWantList(wants);
-    if (cleanWants.length > kMaxWantsPerPost) {
-      throw PostException('You can add up to $kMaxWantsPerPost wanted items.');
+    final cleanGroups = cleanWantGroups(wantGroups);
+    if (cleanGroups.length > kMaxWantsPerPost) {
+      throw PostException(
+        'You can add up to $kMaxWantsPerPost wanted items.',
+      );
     }
-    if (cleanWants.isEmpty && !acceptsOutsideWants) {
+    if (cleanGroups.isEmpty && !acceptsOutsideWants) {
       throw const PostException(
         'Add a wanted item, or allow offers for items not listed.',
       );
@@ -50,7 +53,7 @@ class PostService {
       final postId = await _client.rpc('create_post', params: {
         'p_item_ids': itemIds,
         'p_accepts_outside_wants': acceptsOutsideWants,
-        'p_wants': cleanWants,
+        'p_want_groups': cleanGroups,
       });
       return postId as String;
     } on PostgrestException catch (e) {
@@ -68,28 +71,47 @@ class PostService {
     }
   }
 
-  /// Trims, collapses spaces, drops blanks, and removes duplicates by
-  /// model key, so "iPhone 15" and "iphone15" count once.
-  static List<String> cleanWantList(List<String> raw) {
-    final result = <String>[];
-    final keys = <String>{};
+  /// Cleans each wanted entry: trims names, drops blanks, removes repeats
+  /// by model key, and drops entries with no names left. Two entries with
+  /// the same items in any order count as one.
+  static List<List<String>> cleanWantGroups(List<List<String>> raw) {
+    final result = <List<String>>[];
+    final signatures = <String>{};
 
-    for (final entry in raw) {
-      final text = entry.trim().replaceAll(RegExp(r'\s+'), ' ');
-      if (text.isEmpty) continue;
+    for (final group in raw) {
+      final names = <String>[];
+      final keys = <String>{};
 
-      if (text.length > kMaxWantLength) {
+      for (final entry in group) {
+        final text = entry.trim().replaceAll(RegExp(r'\s+'), ' ');
+        if (text.isEmpty) continue;
+
+        if (text.length > kMaxWantLength) {
+          throw PostException(
+            'Keep each wanted item under $kMaxWantLength characters.',
+          );
+        }
+        final key = normalizeModelKey(text);
+        if (key.isEmpty) {
+          throw const PostException(
+            'Wanted items need at least one letter or number.',
+          );
+        }
+        if (keys.add(key)) names.add(text);
+      }
+
+      if (names.isEmpty) continue;
+      if (names.length > kMaxItemsPerWantBundle) {
         throw PostException(
-          'Keep each wanted item under $kMaxWantLength characters.',
+          'A bundle can hold up to $kMaxItemsPerWantBundle items.',
         );
       }
-      final key = normalizeModelKey(text);
-      if (key.isEmpty) {
-        throw const PostException(
-          'Wanted items need at least one letter or number.',
-        );
+
+      final signature = (keys.toList()..sort()).join('|');
+      if (!signatures.add(signature)) {
+        throw const PostException('You added the same wanted item twice.');
       }
-      if (keys.add(key)) result.add(text);
+      result.add(names);
     }
     return result;
   }

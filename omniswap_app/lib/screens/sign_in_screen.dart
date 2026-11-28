@@ -7,9 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/countries.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
-
-const Color kSummerBlue = Color(0xFF0A27C8);
-const Color kSummerYellow = Color(0xFFFCF300);
+import '../theme/app_colors.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key, this.onProfileSaved});
@@ -131,13 +129,10 @@ class _SignInScreenState extends State<SignInScreen>
       return null;
     }
 
+    // The area field stops at 100 characters (maxLength), so only blank is checked.
     final area = _areaController.text.trim();
     if (area.isEmpty) {
       _showError('Enter your area.');
-      return null;
-    }
-    if (area.length > 100) {
-      _showError('Area name is too long.');
       return null;
     }
 
@@ -219,7 +214,6 @@ class _SignInScreenState extends State<SignInScreen>
         decoration: InputDecoration(
           labelText: 'City',
           hintText: enabled ? 'Enter your city' : 'Select a country first',
-          border: const OutlineInputBorder(),
         ),
       );
     }
@@ -253,12 +247,16 @@ class _SignInScreenState extends State<SignInScreen>
           constraints: const BoxConstraints(minWidth: 96),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           decoration: BoxDecoration(
-            border: Border.all(),
+            border: Border.all(color: AppColors.primary, width: 1.5),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
             country == null ? '+ --' : '${country.flag} +${country.dialCode}',
             textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -273,7 +271,6 @@ class _SignInScreenState extends State<SignInScreen>
             ],
             decoration: InputDecoration(
               hintText: country?.phoneHint ?? 'Select a country first',
-              border: const OutlineInputBorder(),
             ),
           ),
         ),
@@ -286,50 +283,51 @@ class _SignInScreenState extends State<SignInScreen>
     final user = _user;
 
     return Scaffold(
+      backgroundColor: Colors.white,
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Blue header: from the top of the screen down to the divider line.
             Container(
-              color: kSummerBlue,
+              color: AppColors.primary,
               child: SafeArea(
                 bottom: false,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 40),
-                      const CircleAvatar(
+                    children: const [
+                      SizedBox(height: 40),
+                      CircleAvatar(
                         radius: 40,
-                        backgroundColor: kSummerYellow,
+                        backgroundColor: AppColors.accent,
                         child: Icon(
                           Icons.swap_horiz,
                           size: 40,
-                          color: kSummerBlue,
+                          color: AppColors.primary,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
+                      SizedBox(height: 12),
+                      Text(
                         'OmniSwap',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: AppColors.onPrimary,
                         ),
                       ),
-                      const Text(
+                      Text(
                         'Trade what you have for what you want',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70),
+                        style: TextStyle(color: AppColors.onPrimary),
                       ),
-                      const SizedBox(height: 40),
-                      const Divider(
+                      SizedBox(height: 40),
+                      Divider(
                         height: 1,
                         thickness: 1,
-                        color: Colors.white54,
+                        color: AppColors.accent,
                       ),
                     ],
                   ),
@@ -347,16 +345,21 @@ class _SignInScreenState extends State<SignInScreen>
                   children: [
                     const SizedBox(height: 40),
 
-                    const Text('Create your account',
-                        style: TextStyle(
-                            fontSize: 22, fontWeight: FontWeight.w600)),
+                    const Text(
+                      'Create your account',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
                     const SizedBox(height: 16),
 
                     // Button before Google sign-in, badge after
                     if (user == null)
                       OutlinedButton.icon(
                         onPressed: _loading ? null : _addGmail,
-                        icon: const Icon(Icons.g_mobiledata),
+                        icon: const Icon(Icons.g_mobiledata, size: 28),
                         label: const Text('Add Gmail'),
                       )
                     else
@@ -371,43 +374,74 @@ class _SignInScreenState extends State<SignInScreen>
                       ),
                     const SizedBox(height: 24),
 
-                    const Text('Your location'),
+                    const Text(
+                      'Your location',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     _buildCountryField(),
                     const SizedBox(height: 12),
                     _buildCityField(),
                     const SizedBox(height: 12),
+                    // Matches the database: area is 1 to 100 characters.
+                    // The counter shows n/100 under the field.
                     TextField(
                       controller: _areaController,
                       enabled: !_loading,
+                      maxLength: 100,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
                       textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(
                         labelText: 'Area',
                         hintText: 'e.g. DHA Phase 5, Gulberg',
-                        border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 24),
 
-                    const Text('Your WhatsApp number'),
+                    const Text(
+                      'Your WhatsApp number',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     _buildPhoneRow(),
                     const SizedBox(height: 24),
 
                     ElevatedButton(
                       onPressed: _loading ? null : _createAccount,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: AppColors.onPrimary,
+                        disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+                        elevation: 0,
+                        minimumSize: const Size.fromHeight(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
                       child: _loading
                           ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child:
-                          CircularProgressIndicator(strokeWidth: 2))
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.onPrimary,
+                        ),
+                      )
                           : const Text('Create Account'),
                     ),
 
                     const Divider(height: 48),
-                    const Text('Already have an account?',
-                        textAlign: TextAlign.center),
+                    const Text(
+                      'Already have an account?',
+                      textAlign: TextAlign.center,
+                    ),
                     TextButton(
                       onPressed: _loading ? null : _addGmail,
                       child: const Text('Sign in with Google'),
@@ -465,16 +499,25 @@ class _GmailBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.green.shade600),
+          border: Border.all(color: AppColors.primary, width: 1.5),
           borderRadius: BorderRadius.circular(12),
-          color: Colors.green.shade50,
+          color: AppColors.accent.withOpacity(0.25),
         ),
         child: Row(
           children: [
             CircleAvatar(
+              backgroundColor: AppColors.accent,
               backgroundImage:
               avatarUrl != null ? NetworkImage(avatarUrl!) : null,
-              child: avatarUrl == null ? Text(initial) : null,
+              child: avatarUrl == null
+                  ? Text(
+                initial,
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+                  : null,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -482,15 +525,17 @@ class _GmailBadge extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (name.isNotEmpty)
-                    Text(name,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                      name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   Text(email, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            const Icon(Icons.check_circle, color: Colors.green),
+            const Icon(Icons.check_circle, color: AppColors.primary),
             const SizedBox(width: 8),
-            const Icon(Icons.edit, size: 18),
+            const Icon(Icons.edit, size: 18, color: AppColors.primary),
           ],
         ),
       ),
