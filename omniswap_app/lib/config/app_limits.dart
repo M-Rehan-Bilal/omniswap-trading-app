@@ -10,3 +10,6 @@ const int kMaxWantsPerPost = 5;
 const int kMaxItemsPerWantBundle = 5;
 
 const int kMaxWantLength = 60;
+
+/// Most people in one trade cycle. The database matcher uses the same number.
+const int kMaxCycleLength = 5;

@@ -7,6 +7,7 @@ import '../widgets/item_photo.dart';
 import '../widgets/offer_bundle_card.dart';
 import '../widgets/omni_bottom_bar.dart';
 import 'offer_details_screen.dart';
+import 'received_offer_screen.dart';
 
 /// The Trades tab: offers I sent and offers I received.
 class MyOffersScreen extends StatefulWidget {
@@ -64,7 +65,9 @@ class _MyOffersScreenState extends State<MyOffersScreen> {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => OfferDetailsScreen(offer: offer, service: _service),
+        builder: (_) => offer.isSent
+            ? OfferDetailsScreen(offer: offer, service: _service)
+            : ReceivedOfferScreen(offer: offer, service: _service),
       ),
     );
     if (changed == true) _load(showSpinner: false);
