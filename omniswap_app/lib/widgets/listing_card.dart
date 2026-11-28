@@ -11,7 +11,9 @@ IconData iconForModel(String modelName) {
     return Icons.sports_esports_outlined;
   }
   if (key.contains('watch')) return Icons.watch_outlined;
-  if (key.contains('iphone') || key.contains('phone') || key.contains('galaxy')) {
+  if (key.contains('iphone') ||
+      key.contains('phone') ||
+      key.contains('galaxy')) {
     return Icons.phone_iphone;
   }
   if (key.contains('ipad') || key.contains('tablet')) return Icons.tablet_mac;
@@ -22,7 +24,7 @@ IconData iconForModel(String modelName) {
 }
 
 /// One listing: cover photo, title, and what the poster wants.
-/// Used by the home rows and by the See all page.
+/// Used by the home rows, the See all page and the browse grid.
 class ListingCard extends StatelessWidget {
   const ListingCard({
     super.key,
@@ -41,14 +43,14 @@ class ListingCard extends StatelessWidget {
   /// Fixed width for horizontal rows. Null lets a grid size the card.
   final double? width;
 
+  /// "wants PS5 + Controller", or "wants iPhone 15 +2".
   String get _wantsLine {
-    if (post.wantNames.isEmpty) {
+    if (post.wants.isEmpty) {
       return post.acceptsOutsideWants ? 'Open to any item' : 'No wants listed';
     }
-    final extra = post.wantNames.length - 1;
-    return extra > 0
-        ? 'wants ${post.wantNames.first} +$extra'
-        : 'wants ${post.wantNames.first}';
+    final first = post.wants.first.label;
+    final extra = post.wants.length - 1;
+    return extra > 0 ? 'wants $first +$extra' : 'wants $first';
   }
 
   @override

@@ -5,9 +5,13 @@ import '../models/inventory_item.dart';
 import '../services/item_service.dart';
 import '../services/post_service.dart';
 import '../services/trade_service.dart' show normalizeModelKey;
+import '../theme/app_colors.dart';
 import '../widgets/item_photo.dart';
 import '../widgets/item_picker_sheet.dart';
-import 'home_screen.dart'; // kOmniYellow, kOmniInk, kOmniMuted, kOmniBg
+import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
+
+/// Whether the entry being added is a single item or a bundle.
+enum _WantMode { single, bundle }
 
 class PostItemScreen extends StatefulWidget {
   const PostItemScreen({super.key});
@@ -27,9 +31,14 @@ class _PostItemScreenState extends State<PostItemScreen> {
   /// Chosen item ids, in the order they were added.
   final List<String> _selectedIds = [];
 
-  /// Wanted items as the user typed them. Unique by model key.
-  final List<String> _wants = [];
+  /// Saved wanted entries. Each inner list is one entry: one name for a
+  /// single item, or two or more names for a bundle. Order does not matter.
+  final List<List<String>> _wants = [];
 
+  /// Names of the bundle being built. Not saved until the user saves it.
+  final List<String> _pendingBundle = [];
+
+  _WantMode _mode = _WantMode.single;
   bool _acceptsOutside = false;
   bool _loading = true;
   bool _submitting = false;
@@ -145,39 +154,90 @@ class _PostItemScreenState extends State<PostItemScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Wants
+  // Wanted entries
   // ---------------------------------------------------------------------------
 
-  /// Adds a typed want. Returns true if nothing is left to fix (added, or
-  /// the text was blank). Returns false and shows a message otherwise.
-  bool _addWant(String raw) {
-    final text = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
-    if (text.isEmpty) return true;
+  /// Trims and collapses spaces, as the database does.
+  static String _tidy(String raw) => raw.trim().replaceAll(RegExp(r'\s+'), ' ');
 
+  /// Returns a message if [text] cannot be a wanted item, otherwise null.
+  String? _checkName(String text) {
     if (text.length > kMaxWantLength) {
-      _showMessage('Keep each wanted item under $kMaxWantLength characters.');
-      return false;
+      return 'Keep each wanted item under $kMaxWantLength characters.';
     }
-    final key = normalizeModelKey(text);
-    if (key.isEmpty) {
-      _showMessage('Wanted items need at least one letter or number.');
-      return false;
+    if (normalizeModelKey(text).isEmpty) {
+      return 'Wanted items need at least one letter or number.';
     }
-    if (_wants.any((w) => normalizeModelKey(w) == key)) {
-      _showMessage('"$text" is already in your list.');
-      return false;
-    }
-    if (_wants.length >= kMaxWantsPerPost) {
-      _showMessage('You can add up to $kMaxWantsPerPost wanted items.');
-      return false;
-    }
+    return null;
+  }
 
-    setState(() => _wants.add(text));
+  /// True if a new entry with these names may be added to the list.
+  bool _canAddEntry(List<String> names) {
+    if (_wants.length >= kMaxWantsPerPost) {
+      _showMessage('You can add up to $kMaxWantsPerPost wanted items or bundles.');
+      return false;
+    }
+    final signature = _signatureOf(names);
+    if (_wants.any((entry) => _signatureOf(entry) == signature)) {
+      _showMessage('That wanted item is already in your list.');
+      return false;
+    }
     return true;
   }
 
-  void _onWantSubmitted(String value) {
-    if (_addWant(value)) _wantController.clear();
+  /// Same idea as the database signature: sorted keys joined by "|".
+  static String _signatureOf(Iterable<String> names) =>
+      (names.map(normalizeModelKey).toList()..sort()).join('|');
+
+  /// Adds the text in the field. In single mode it becomes its own entry.
+  /// In bundle mode it joins the bundle being built. Returns false when
+  /// something was wrong and a message was shown.
+  bool _addFromField() {
+    final text = _tidy(_wantController.text);
+    if (text.isEmpty) return true;
+
+    final problem = _checkName(text);
+    if (problem != null) {
+      _showMessage(problem);
+      return false;
+    }
+
+    if (_mode == _WantMode.single) {
+      if (!_canAddEntry([text])) return false;
+      setState(() => _wants.add([text]));
+    } else {
+      final key = normalizeModelKey(text);
+      if (_pendingBundle.any((name) => normalizeModelKey(name) == key)) {
+        _showMessage('"$text" is already in this bundle.');
+        return false;
+      }
+      if (_pendingBundle.length >= kMaxItemsPerWantBundle) {
+        _showMessage('A bundle can hold up to $kMaxItemsPerWantBundle items.');
+        return false;
+      }
+      setState(() => _pendingBundle.add(text));
+    }
+
+    _wantController.clear();
+    return true;
+  }
+
+  /// Saves the bundle being built as one entry. Needs at least two items.
+  /// Returns true when nothing is pending or the bundle was saved.
+  bool _saveBundle() {
+    if (_pendingBundle.isEmpty) return true;
+
+    if (_pendingBundle.length < 2) {
+      _showMessage('A bundle needs at least 2 items. Add another, or clear it.');
+      return false;
+    }
+    if (!_canAddEntry(_pendingBundle)) return false;
+
+    setState(() {
+      _wants.add(List<String>.of(_pendingBundle));
+      _pendingBundle.clear();
+    });
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -187,9 +247,8 @@ class _PostItemScreenState extends State<PostItemScreen> {
   Future<void> _submit() async {
     if (_submitting) return;
 
-    // A want typed but not yet added is validated and added first.
-    if (!_addWant(_wantController.text)) return;
-    _wantController.clear();
+    // Anything typed or still being built is added first.
+    if (!_addFromField() || !_saveBundle()) return;
 
     if (_selectedIds.isEmpty) {
       _showMessage('Choose at least one item to post.');
@@ -208,7 +267,7 @@ class _PostItemScreenState extends State<PostItemScreen> {
       await _postService.createPost(
         itemIds: List<String>.of(_selectedIds),
         acceptsOutsideWants: _acceptsOutside,
-        wants: List<String>.of(_wants),
+        wantGroups: [for (final entry in _wants) List<String>.of(entry)],
       );
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -254,7 +313,9 @@ class _PostItemScreenState extends State<PostItemScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
     }
     if (_loadError != null) {
       return Center(
@@ -274,9 +335,9 @@ class _PostItemScreenState extends State<PostItemScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildItemsSection(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
           _buildWantsSection(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           _buildOutsideToggle(),
         ],
       ),
@@ -306,7 +367,7 @@ class _PostItemScreenState extends State<PostItemScreen> {
           icon: const Icon(Icons.add, size: 18),
           label: Text(_selectedIds.isEmpty ? 'Add item' : 'Change items'),
           style: OutlinedButton.styleFrom(
-            foregroundColor: kOmniInk,
+            foregroundColor: AppColors.primary,
             backgroundColor: Colors.white,
             side: const BorderSide(color: Color(0xFFD9E0EA)),
             shape: RoundedRectangleBorder(
@@ -341,6 +402,7 @@ class _PostItemScreenState extends State<PostItemScreen> {
 
   Widget _buildWantsSection() {
     final full = _wants.length >= kMaxWantsPerPost;
+    final enabled = !_submitting && !full;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,73 +417,191 @@ class _PostItemScreenState extends State<PostItemScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFD9E0EA)),
+        const SizedBox(height: 4),
+        const Text(
+          'Ask for a single item, or a bundle of items you want together.',
+          style: TextStyle(color: kOmniMuted, fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<_WantMode>(
+            segments: const [
+              ButtonSegment(
+                value: _WantMode.single,
+                label: Text('Single item'),
+                icon: Icon(Icons.sell_outlined, size: 18),
+              ),
+              ButtonSegment(
+                value: _WantMode.bundle,
+                label: Text('Bundle'),
+                icon: Icon(Icons.layers_rounded, size: 18),
+              ),
+            ],
+            selected: {_mode},
+            showSelectedIcon: false,
+            onSelectionChanged: _submitting
+                ? null
+                : (selection) => setState(() => _mode = selection.first),
+            style: SegmentedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: kOmniInk,
+              selectedBackgroundColor: AppColors.primary,
+              selectedForegroundColor: AppColors.onPrimary,
+              side: BorderSide(color: AppColors.primary.withOpacity(0.25)),
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        const SizedBox(height: 12),
+        _buildComposer(enabled: enabled),
+        if (full)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'You have reached the limit of $kMaxWantsPerPost wanted items.',
+              style: TextStyle(color: kOmniMuted, fontSize: 12),
+            ),
+          ),
+        const SizedBox(height: 14),
+        _buildSavedWants(),
+      ],
+    );
+  }
+
+  /// The input for the current mode, plus the bundle controls in bundle mode.
+  Widget _buildComposer({required bool enabled}) {
+    final isBundle = _mode == _WantMode.bundle;
+    final canSaveBundle = enabled && _pendingBundle.length >= 2;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: _boxDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              if (_wants.isNotEmpty)
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final want in _wants)
-                      InputChip(
-                        label: Text(want),
-                        onDeleted: _submitting
-                            ? null
-                            : () => setState(() => _wants.remove(want)),
-                        backgroundColor: const Color(0xFFDDE6F2),
-                        side: BorderSide.none,
-                      ),
-                  ],
-                ),
-              if (_wants.isNotEmpty) const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _wantController,
-                      enabled: !_submitting && !full,
-                      textInputAction: TextInputAction.done,
-                      textCapitalization: TextCapitalization.words,
-                      onSubmitted: _onWantSubmitted,
-                      decoration: InputDecoration(
-                        hintText: full
-                            ? 'Limit reached'
-                            : 'e.g. iPhone 15',
-                        isDense: true,
-                        filled: true,
-                        fillColor: kOmniBg,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
+              Expanded(
+                child: TextField(
+                  controller: _wantController,
+                  enabled: enabled,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.words,
+                  onSubmitted: (_) {
+                    _addFromField();
+                  },
+                  decoration: InputDecoration(
+                    hintText: isBundle
+                        ? 'Add an item to the bundle'
+                        : 'e.g. iPhone 15',
+                    isDense: true,
+                    filled: true,
+                    fillColor: kOmniBg,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Add',
-                    onPressed: _submitting || full
-                        ? null
-                        : () => _onWantSubmitted(_wantController.text),
-                    icon: const Icon(Icons.add_circle, color: kOmniInk),
-                  ),
-                ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                tooltip: isBundle ? 'Add to bundle' : 'Add',
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.onPrimary,
+                  disabledBackgroundColor: AppColors.primary.withOpacity(0.3),
+                ),
+                onPressed: enabled
+                    ? () {
+                  _addFromField();
+                }
+                    : null,
+                icon: const Icon(Icons.add_rounded),
               ),
             ],
           ),
-        ),
+          if (isBundle) ...[
+            const SizedBox(height: 12),
+            if (_pendingBundle.isEmpty)
+              const Text(
+                'Add at least 2 items. Order does not matter.',
+                style: TextStyle(color: kOmniMuted, fontSize: 12),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final name in _pendingBundle)
+                    InputChip(
+                      label: Text(name),
+                      onDeleted: enabled
+                          ? () => setState(() => _pendingBundle.remove(name))
+                          : null,
+                      deleteIconColor: AppColors.primary,
+                      backgroundColor: AppColors.primary.withOpacity(0.08),
+                      side: BorderSide.none,
+                    ),
+                ],
+              ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: enabled && _pendingBundle.isNotEmpty
+                        ? () => setState(() => _pendingBundle.clear())
+                        : null,
+                    child: const Text('Clear'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed: canSaveBundle
+                        ? () {
+                      if (_addFromField()) _saveBundle();
+                    }
+                        : null,
+                    icon: const Icon(Icons.layers_rounded, size: 18),
+                    label: Text('Save bundle (${_pendingBundle.length})'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The saved entries. Single items show one name, bundles show all names.
+  Widget _buildSavedWants() {
+    if (_wants.isEmpty) {
+      return const _HintBox(
+        text: 'Nothing listed yet. Add what you would like in return, '
+            'or turn on outside wants below.',
+      );
+    }
+
+    return Column(
+      children: [
+        for (final entry in _wants)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _WantTile(
+              names: entry,
+              onRemove: _submitting
+                  ? null
+                  : () => setState(() => _wants.remove(entry)),
+            ),
+          ),
       ],
     );
   }
@@ -433,11 +613,7 @@ class _PostItemScreenState extends State<PostItemScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFD9E0EA)),
-          ),
+          decoration: _boxDecoration(),
           child: SwitchListTile(
             value: _acceptsOutside,
             onChanged: _submitting
@@ -477,14 +653,6 @@ class _PostItemScreenState extends State<PostItemScreen> {
         child: SizedBox(
           height: 52,
           child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kOmniYellow,
-              foregroundColor: kOmniInk,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
             onPressed: _submitting ? null : _submit,
             child: _submitting
                 ? const SizedBox(
@@ -492,7 +660,7 @@ class _PostItemScreenState extends State<PostItemScreen> {
               width: 22,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
-                color: kOmniInk,
+                color: AppColors.onPrimary,
               ),
             )
                 : Text(
@@ -507,6 +675,12 @@ class _PostItemScreenState extends State<PostItemScreen> {
       ),
     );
   }
+
+  BoxDecoration _boxDecoration() => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(color: const Color(0xFFD9E0EA)),
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -604,6 +778,94 @@ class _SelectedItemTile extends StatelessWidget {
             tooltip: 'Remove from post',
             onPressed: onRemove,
             icon: const Icon(Icons.close, color: kOmniMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One saved wanted entry. A single item shows one name, a bundle shows
+/// every name as a chip, with the item count above them.
+class _WantTile extends StatelessWidget {
+  const _WantTile({required this.names, required this.onRemove});
+
+  final List<String> names;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBundle = names.length > 1;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 6, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primary.withOpacity(0.15)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              isBundle ? Icons.layers_rounded : Icons.sell_outlined,
+              size: 20,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isBundle ? 'Bundle · ${names.length} items' : 'Single item',
+                  style: const TextStyle(
+                    color: kOmniMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final name in names)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          name,
+                          style: const TextStyle(
+                            color: kOmniInk,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove',
+            onPressed: onRemove,
+            icon: const Icon(Icons.close_rounded, color: kOmniMuted),
           ),
         ],
       ),

@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/item_condition.dart';
 import '../models/post_details.dart';
+import '../models/post_listing.dart';
 
 class PostDetailsService {
   PostDetailsService([SupabaseClient? client])
@@ -12,18 +13,16 @@ class PostDetailsService {
   static const String _imageBucket = 'item-images';
   static const int _signedUrlSeconds = 60 * 60;
 
-  static const String _postSelect =
-      'id, owner_id, accepts_outside_wants, '
+  // `wants` carries group_id so single wants and bundles can be told apart.
+  static const String _postSelect = 'id, owner_id, accepts_outside_wants, '
       'items(id, title, description, item_condition, manufacture_year, '
       'item_images(position, storage_key)), '
-      'wants(model_name)';
+      'wants(group_id, model_name, model_key)';
 
   String? get currentUserId => _client.auth.currentUser?.id;
 
-  /// Loads one active post with all its items, photos, wants and owner.
-  /// Returns null if the post does not exist or is no longer active.
-  /// Loads one active post with all its items, photos, wants and owner.
-  /// Returns null if the post does not exist or is no longer active.
+  /// Loads one active post with all its items, photos, wanted entries and
+  /// owner. Returns null if the post does not exist or is no longer active.
   Future<PostDetails?> fetchPost(String postId) async {
     final row = await _client
         .from('posts')
@@ -41,9 +40,9 @@ class PostDetailsService {
     // Load every item, and all of its photos, at the same time.
     final items = await Future.wait(rawItems.map(_toItem));
 
-    final wants = _maps(row['wants'])
-      ..sort((a, b) =>
-          _lower(a['model_name']).compareTo(_lower(b['model_name'])));
+    // Single wants and bundles, sorted by label. Order inside a bundle is
+    // not significant, so the labels are shown as stored.
+    final bundles = WantBundle.fromRows(_maps(row['wants']));
 
     // public_profiles hides the phone number and email.
     final ownerId = row['owner_id'] as String;
@@ -74,7 +73,7 @@ class PostDetailsService {
       ),
       acceptsOutsideWants: row['accepts_outside_wants'] as bool,
       items: items,
-      wants: [for (final w in wants) w['model_name'] as String],
+      wants: [for (final bundle in bundles) bundle.label],
     );
   }
 

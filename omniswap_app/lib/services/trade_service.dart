@@ -16,12 +16,11 @@ class TradeService {
   static const String _imageBucket = 'item-images';
   static const int _signedUrlSeconds = 60 * 60;
 
-  /// Embeds each item's photo paths so the cover photo can be signed.
-  static const String _postSelect =
-      'id, owner_id, accepts_outside_wants, '
+  // item_images is embedded so each post can report its cover photo path.
+  static const String _postSelect = 'id, owner_id, accepts_outside_wants, '
       'items(id, title, model_name, model_key, item_condition, '
       'item_images(position, storage_key)), '
-      'wants(model_name, model_key)';
+      'wants(group_id, model_name, model_key)';
 
   String get currentUserId {
     final user = _client.auth.currentUser;
@@ -45,8 +44,9 @@ class TradeService {
     ];
   }
 
-  /// Direct trades: active posts from other users that hold an item matching
-  /// [wantText] and either want one of [haveModelKeys] or accept outside wants.
+  /// Direct trades for the selected item: active posts from other users that
+  /// hold an item matching [wantText] and either accept outside wants or
+  /// have a wanted entry fully covered by [haveModelKeys].
   Future<List<PostListing>> findDirectTrades({
     required Set<String> haveModelKeys,
     required String wantText,
@@ -56,7 +56,6 @@ class TradeService {
     final me = currentUserId;
 
     // Step 1: find the posts that hold a matching item.
-    // Filtering the embedded items here would also trim each post's bundle.
     final itemRows = await _client
         .from('items')
         .select('post_id')
@@ -84,45 +83,44 @@ class TradeService {
         PostListing.fromRow(row as Map<String, dynamic>),
     ];
 
-    // Keep a post if it accepts any outside item, or if it wants one of
-    // the items in the user's post.
     return posts
-        .where((p) =>
-    p.acceptsOutsideWants ||
-        p.wantKeys.any((key) => haveModelKeys.contains(key)))
+        .where((p) => p.acceptsOutsideWants || p.wantsCoveredBy(haveModelKeys))
         .toList();
   }
 
-  /// Active posts from other users that want any of [modelKeys].
-  /// Returned as a map: wanted model_key -> posts that want it.
-  Future<Map<String, List<PostListing>>> fetchPostsWantingModels(
-      Set<String> modelKeys,
-      ) async {
-    if (modelKeys.isEmpty) return {};
+  /// Active posts from other users that want at least one of [modelKeys].
+  /// A post that wants a bundle appears when any one of its items matches.
+  /// Callers must still check that the whole entry is covered, using
+  /// [PostListing.wantsCoveredBy].
+  Future<List<PostListing>> fetchCandidatePosts(Set<String> modelKeys) async {
+    if (modelKeys.isEmpty) return [];
 
     final rows = await _client
         .from('wants')
-        .select('model_key, posts!inner($_postSelect)')
+        .select('posts!inner($_postSelect)')
         .inFilter('model_key', modelKeys.toList())
         .eq('posts.status', 'active')
         .neq('posts.owner_id', currentUserId);
 
-    final result = <String, List<PostListing>>{};
+    // One wanted row per matching item, so the same post can come back twice.
+    final byPostId = <String, PostListing>{};
     for (final row in rows) {
-      final wantKey = row['model_key'] as String;
-      final post = PostListing.fromRow(row['posts'] as Map<String, dynamic>);
-      result.putIfAbsent(wantKey, () => []).add(post);
+      final post =
+      PostListing.fromRow(row['posts'] as Map<String, dynamic>);
+      byPostId.putIfAbsent(post.postId, () => post);
     }
-    return result;
+    return byPostId.values.toList();
   }
 
-  /// Creates a signed URL for each private photo path.
-  /// Paths that fail are left out, and the card shows a placeholder.
-  Future<Map<String, String>> signPaths(Iterable<String> paths) async {
+  /// Signs each private photo path. Paths that fail are left out, and the
+  /// card keeps its placeholder.
+  Future<Map<String, String>> signPaths(Set<String> paths) async {
+    if (paths.isEmpty) return {};
+
     final storage = _client.storage.from(_imageBucket);
     final urls = <String, String>{};
 
-    await Future.wait(paths.toSet().map((path) async {
+    await Future.wait(paths.map((path) async {
       try {
         urls[path] = await storage.createSignedUrl(path, _signedUrlSeconds);
       } catch (_) {

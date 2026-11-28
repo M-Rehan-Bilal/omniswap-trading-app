@@ -26,8 +26,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   List<PostListing> _posts = [];
 
-  // Signed photo URLs, keyed by storage path. Same approach as home.
-  final Map<String, String> _urlByPath = {};
+  /// Signed photo URLs, keyed by storage path.
+  Map<String, String> _urlByPath = {};
 
   bool _loading = true;
   String? _error;
@@ -55,21 +55,17 @@ class _BrowseScreenState extends State<BrowseScreen> {
     if (showSpinner) setState(() => _loading = true);
 
     try {
-      final posts = await _service.fetchPosts(
+      final page = await _service.fetchPage(
         search: _searchController.text,
         newestFirst: _newestFirst,
       );
       if (!mounted || id != _requestId) return;
       setState(() {
-        _posts = posts;
+        _posts = page.posts;
+        _urlByPath = page.urlByPath;
         _error = null;
         _loading = false;
       });
-
-      // Cards show immediately as placeholders, then photos fill in.
-      final urls = await _service.signCovers(posts);
-      if (!mounted || id != _requestId) return;
-      setState(() => _urlByPath.addAll(urls));
     } catch (e) {
       debugPrint('Browse load failed: $e');
       if (!mounted || id != _requestId) return;
@@ -98,7 +94,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
   void _onSearchChanged(String _) {
     setState(() {});
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), _load);
+    _debounce = Timer(const Duration(milliseconds: 400), () => _load());
   }
 
   void _clearSearch() {
@@ -271,9 +267,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   Widget _buildContent() {
     if (_loading && _posts.isEmpty) {
-      return _scrollableMessage(
-        const CircularProgressIndicator(),
-      );
+      return _scrollableMessage(const CircularProgressIndicator());
     }
 
     if (_error != null && _posts.isEmpty) {
@@ -282,7 +276,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(_error!, style: const TextStyle(color: kOmniMuted)),
-            TextButton(onPressed: _load, child: const Text('Retry')),
+            TextButton(onPressed: () => _load(), child: const Text('Retry')),
           ],
         ),
       );

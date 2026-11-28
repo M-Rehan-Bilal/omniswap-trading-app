@@ -112,22 +112,18 @@ class _HomeScreenState extends State<HomeScreen> {
       final posts = await _service.fetchMyActivePosts();
 
       // Every item in every post counts, not only each post's cover item.
-      final wanting = await _service.fetchPostsWantingModels(
+      final candidates = await _service.fetchCandidatePosts(
         {for (final post in posts) ...post.itemKeys},
       );
 
       final matches = <String, List<PostListing>>{};
       for (final post in posts) {
-        final seenPostIds = <String>{};
-        final found = <PostListing>[];
-
-        for (final key in post.itemKeys) {
-          for (final other in wanting[key] ?? const <PostListing>[]) {
-            // One post can match through several of its items, so list it once.
-            if (seenPostIds.add(other.postId)) found.add(other);
-          }
-        }
-        matches[post.itemId] = found;
+        // A post matches when one of its wanted entries is fully covered by
+        // this post's items. A bundle needs every one of its items.
+        matches[post.itemId] = [
+          for (final other in candidates)
+            if (other.wantsCoveredBy(post.itemKeys)) other,
+        ];
       }
 
       if (!mounted) return;
@@ -147,6 +143,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Signs the cover photo of each post and stores the URLs for the cards.
+  /// A failure here only leaves placeholders, so it is not reported as a
+  /// listings error.
   Future<void> _signCovers(Iterable<PostListing> posts) async {
     final paths = {
       for (final post in posts)
@@ -154,9 +152,13 @@ class _HomeScreenState extends State<HomeScreen> {
     };
     if (paths.isEmpty) return;
 
-    final urls = await _service.signPaths(paths);
-    if (!mounted) return;
-    setState(() => _urlByPath.addAll(urls));
+    try {
+      final urls = await _service.signPaths(paths);
+      if (!mounted) return;
+      setState(() => _urlByPath.addAll(urls));
+    } catch (_) {
+      // Cards keep their placeholder images.
+    }
   }
 
   Future<void> _findTrade() async {
@@ -383,7 +385,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 .map(
                   (item) => DropdownMenuItem<String>(
                 value: item.itemId,
-                child: Text(item.displayTitle, overflow: TextOverflow.ellipsis),
+                child: Text(
+                  item.displayTitle,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             )
                 .toList(),
