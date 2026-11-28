@@ -40,6 +40,7 @@ class OfferSummary {
     required this.status,
     required this.createdAt,
     required this.isSent,
+    required this.otherUserId,
     required this.otherName,
     required this.offered,
     required this.postItems,
@@ -52,6 +53,9 @@ class OfferSummary {
 
   /// True if I made this offer. False if it was made to me.
   final bool isSent;
+
+  /// The other person's user id (used to load their profile).
+  final String otherUserId;
 
   /// The other person: the post owner (sent) or the offerer (received).
   final String otherName;

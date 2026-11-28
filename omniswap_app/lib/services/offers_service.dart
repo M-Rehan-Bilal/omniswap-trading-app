@@ -144,6 +144,7 @@ class OffersService {
         status: OfferStatus.fromDb(row['status'] as String),
         createdAt: DateTime.parse(row['created_at'] as String),
         isSent: isSent,
+        otherUserId: otherId,
         otherName: names[otherId] ?? 'Unknown user',
         offered: [for (final raw in offered) entry(raw)],
         postItems: [
