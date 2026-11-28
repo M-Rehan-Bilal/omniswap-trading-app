@@ -9,8 +9,9 @@ import 'home_screen.dart'; // kOmniYellow, kOmniInk, kOmniMuted, kOmniBg
 import 'item_details_screen.dart';
 import 'add_item_screen.dart';
 import 'post_item_screen.dart';
+import 'post_details_screen.dart';
 
-enum _ItemAction { details, removePost }
+enum _ItemAction { viewPost, details, removePost }
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -124,11 +125,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Future<void> _onItemTap(InventoryItem item) async {
     _clearBanner();
 
+    // Not posted: go straight to the item's details, as before.
     if (!item.isPosted) {
       await _openDetails(item);
       return;
     }
 
+    // Posted: show the choices.
     final action = await showModalBottomSheet<_ItemAction>(
       context: context,
       backgroundColor: Colors.white,
@@ -159,6 +162,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
               onTap: () => Navigator.pop(sheetContext, _ItemAction.details),
             ),
             ListTile(
+              leading: const Icon(Icons.storefront_outlined, color: kOmniInk),
+              title: const Text('View post'),
+              onTap: () => Navigator.pop(sheetContext, _ItemAction.viewPost),
+            ),
+            ListTile(
               leading: Icon(
                 Icons.remove_circle_outline,
                 color: Colors.red.shade700,
@@ -170,6 +178,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               onTap: () =>
                   Navigator.pop(sheetContext, _ItemAction.removePost),
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -177,6 +186,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
     if (!mounted || action == null) return;
     switch (action) {
+      case _ItemAction.viewPost:
+        await _openOwnPost(item);
+        break;
       case _ItemAction.details:
         await _openDetails(item);
         break;
@@ -184,6 +196,25 @@ class _InventoryScreenState extends State<InventoryScreen> {
         await _confirmRemovePost(item);
         break;
     }
+  }
+
+  /// Opens the post as the owner sees it. If the owner removes the post
+  /// there, the screen pops with true and the inventory reloads.
+  Future<void> _openOwnPost(InventoryItem item) async {
+    final postId = item.postId;
+    if (postId == null) return;
+
+    final removed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => PostDetailsScreen(postId: postId)),
+    );
+    if (!mounted || removed != true) return;
+
+    await _load();
+    _showBanner(
+      title: 'Post removed',
+      subtitle: 'Its items are available to post again',
+    );
   }
 
   Future<void> _confirmRemovePost(InventoryItem item) async {

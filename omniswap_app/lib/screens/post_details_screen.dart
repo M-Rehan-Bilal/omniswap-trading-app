@@ -9,6 +9,8 @@ import '../widgets/detail_widgets.dart';
 import '../widgets/item_photo.dart';
 import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
 import 'item_detail_screen.dart';
+import '../services/post_service.dart';
+import 'make_offer_screen.dart';
 
 /// The bundle page: a summary of the whole post. Tapping an item opens
 /// that item's own page.
@@ -24,9 +26,11 @@ class PostDetailsScreen extends StatefulWidget {
 
 class _PostDetailsScreenState extends State<PostDetailsScreen> {
   final PostDetailsService _service = PostDetailsService();
+  final PostService _postService = PostService();
 
   PostDetails? _post;
   bool _loading = true;
+  bool _removing = false;
   String? _error;
 
   /// Which cover is showing in the carousel. The heading follows it.
@@ -55,6 +59,11 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
     }
   }
 
+  bool get _isOwner {
+    final post = _post;
+    return post != null && post.ownerId == _service.currentUserId;
+  }
+
   void _openItem(PostDetails post, int index) {
     Navigator.push(
       context,
@@ -65,13 +74,65 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
   }
 
   void _makeOffer(PostDetails post) {
-    Navigator.pushNamed(context, '/make-offer', arguments: post);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => MakeOfferScreen(post: post)),
+    );
+  }
+
+  void _showSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Owner only. Asks first, then removes the post and goes back.
+  /// Pops with true so the Inventory screen reloads.
+  Future<void> _confirmRemove(PostDetails post) async {
+    final count = post.items.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove this post?'),
+        content: Text(
+          'The post holds $count ${count == 1 ? 'item' : 'items'}. '
+              'They become available again, and any pending offers on this '
+              'post are cancelled.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep post'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              'Remove',
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _removing = true);
+    try {
+      await _postService.removePost(post.postId);
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } on PostException catch (e) {
+      _showSnack(e.message);
+    } catch (_) {
+      _showSnack('Could not remove the post. Please try again.');
+    } finally {
+      if (mounted) setState(() => _removing = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final post = _post;
-    final isOwner = post != null && post.ownerId == _service.currentUserId;
+    final isOwner = _isOwner;
 
     return Scaffold(
       backgroundColor: kOmniBg,
@@ -85,12 +146,17 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
         ),
       ),
       body: _buildBody(post, isOwner),
-      bottomNavigationBar: post != null && !isOwner
-          ? MakeOfferBar(
+      bottomNavigationBar: post == null
+          ? null
+          : isOwner
+          ? _OwnerBar(
+        removing: _removing,
+        onRemove: () => _confirmRemove(post),
+      )
+          : MakeOfferBar(
         itemCount: post.items.length,
         onPressed: () => _makeOffer(post),
-      )
-          : null,
+      ),
     );
   }
 
@@ -116,6 +182,10 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isOwner) ...[
+            const _OwnerBanner(),
+            const SizedBox(height: 16),
+          ],
           _CoverCarousel(
             items: post.items,
             onTap: (index) => _openItem(post, index),
@@ -737,6 +807,84 @@ class _WantChip extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(color: kOmniInk, fontSize: 13),
+      ),
+    );
+  }
+}
+
+/// Shown at the top of the post page when the viewer owns the post.
+class _OwnerBanner extends StatelessWidget {
+  const _OwnerBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kOmniYellow, width: 1.5),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.visibility_outlined, color: kOmniInk, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'This is your post. This is how other traders see it.',
+              style: TextStyle(color: kOmniInk, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom bar for the owner. Replaces "Make an Offer".
+class _OwnerBar extends StatelessWidget {
+  const _OwnerBar({required this.removing, required this.onRemove});
+
+  final bool removing;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final red = Colors.red.shade700;
+
+    return Container(
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed: removing ? null : onRemove,
+              icon: removing
+                  ? const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Icon(Icons.remove_circle_outline),
+              label: const Text(
+                'Remove post',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: red,
+                side: BorderSide(color: red),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

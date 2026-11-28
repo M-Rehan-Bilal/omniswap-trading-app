@@ -5,6 +5,7 @@ import '../models/post_details.dart';
 import '../widgets/detail_widgets.dart';
 import '../widgets/item_photo.dart';
 import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
+import 'make_offer_screen.dart';
 
 /// One item's page: all of its photos and details.
 /// The whole post is passed in, so moving between items needs no new request.
@@ -53,7 +54,11 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   }
 
   void _makeOffer() {
-    Navigator.pushNamed(context, '/make-offer', arguments: widget.post);
+    // Offers always cover the whole post, even when the user opened one item.
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => MakeOfferScreen(post: widget.post)),
+    );
   }
 
   @override

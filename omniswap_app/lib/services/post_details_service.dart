@@ -54,10 +54,14 @@ class PostDetailsService {
 
     // The phone number comes from a function that only returns it for
     // active posts, to signed-in users.
-    final phone = await _client.rpc(
+    // The owner does not need their own contact number, so skip the call.
+    final isOwner = ownerId == currentUserId;
+    final String? phone = isOwner
+        ? null
+        : (await _client.rpc(
       'get_post_contact',
       params: {'p_post_id': postId},
-    ) as String?;
+    )) as String?;
 
     return PostDetails(
       postId: row['id'] as String,
