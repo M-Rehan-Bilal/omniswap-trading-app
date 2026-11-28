@@ -11,6 +11,9 @@ import 'screens/home_screen.dart';
 import 'screens/inventory_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/user_service.dart';
+import 'models/post_details.dart';
+import 'screens/make_offer_screen.dart';
+import 'screens/my_offers_screen.dart';
 
 /// Lets code outside the widget tree (AuthGate) manage the app's routes.
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -109,14 +112,14 @@ Route<dynamic> _onGenerateRoute(RouteSettings settings) {
         page = const EditProfileScreen();
         break;
       case '/trades':
-        page = const _ComingSoonScreen(title: 'Trades');
+        page = const MyOffersScreen();
         break;
       case '/notifications':
         page = const _ComingSoonScreen(title: 'Notifications');
         break;
       case '/make-offer':
-      // Takes a PostListing argument once the offer screen exists.
-        page = const _ComingSoonScreen(title: 'Make an Offer');
+      // Needs the PostDetails of the post being offered for.
+        page = MakeOfferScreen(post: settings.arguments as PostDetails);
         break;
       default:
         page = const _ComingSoonScreen(title: 'Page not found');

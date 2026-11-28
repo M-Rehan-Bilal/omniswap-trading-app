@@ -64,11 +64,8 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
     );
   }
 
-  void _makeOffer() {
-    // TODO: open the offer screen for the whole post.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Offers coming soon.')),
-    );
+  void _makeOffer(PostDetails post) {
+    Navigator.pushNamed(context, '/make-offer', arguments: post);
   }
 
   @override
@@ -89,7 +86,10 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
       ),
       body: _buildBody(post, isOwner),
       bottomNavigationBar: post != null && !isOwner
-          ? MakeOfferBar(itemCount: post.items.length, onPressed: _makeOffer)
+          ? MakeOfferBar(
+        itemCount: post.items.length,
+        onPressed: () => _makeOffer(post),
+      )
           : null,
     );
   }
@@ -372,8 +372,7 @@ class _SellerHeader extends StatelessWidget {
               const SizedBox(height: 4),
               Row(
                 children: [
-                  const Icon(Icons.place_rounded,
-                      size: 14, color: kOmniMuted),
+                  const Icon(Icons.place_rounded, size: 14, color: kOmniMuted),
                   const SizedBox(width: 4),
                   Flexible(
                     child: Text(

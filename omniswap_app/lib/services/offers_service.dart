@@ -67,36 +67,37 @@ class OffersService {
       url: raw.coverPath == null ? null : urls[raw.coverPath],
     );
 
-    return [
-      for (final row in rows)
-            () {
-          final isSent = row['offerer_id'] == me;
-          final otherId = isSent
-              ? row['target_owner_id'] as String
-              : row['offerer_id'] as String;
+    final summaries = <OfferSummary>[];
+    for (final row in rows) {
+      final isSent = row['offerer_id'] == me;
+      final postId = row['target_post_id'] as String;
+      final otherId = isSent
+          ? row['target_owner_id'] as String
+          : row['offerer_id'] as String;
 
-          final offered = <_RawItem>[
-            for (final oi in (row['offer_items'] as List<dynamic>? ?? const []))
-              if (items[(oi as Map<String, dynamic>)['item_id']] != null)
-                items[oi['item_id']]!,
-          ]..sort((a, b) =>
-              a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      final offered = <_RawItem>[];
+      for (final oi in (row['offer_items'] as List<dynamic>? ?? const [])) {
+        final itemId = (oi as Map<String, dynamic>)['item_id'] as String;
+        final raw = items[itemId];
+        if (raw != null) offered.add(raw);
+      }
+      offered.sort(
+              (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
 
-          return OfferSummary(
-            id: row['id'] as String,
-            postId: row['target_post_id'] as String,
-            status: OfferStatus.fromDb(row['status'] as String),
-            createdAt: DateTime.parse(row['created_at'] as String),
-            isSent: isSent,
-            otherName: names[otherId] ?? 'Unknown user',
-            offered: [for (final raw in offered) entry(raw)],
-            postItems: [
-              for (final raw in posts[row['target_post_id']] ?? const <_RawItem>[])
-                entry(raw),
-            ],
-          );
-        }(),
-    ];
+      summaries.add(OfferSummary(
+        id: row['id'] as String,
+        postId: postId,
+        status: OfferStatus.fromDb(row['status'] as String),
+        createdAt: DateTime.parse(row['created_at'] as String),
+        isSent: isSent,
+        otherName: names[otherId] ?? 'Unknown user',
+        offered: [for (final raw in offered) entry(raw)],
+        postItems: [
+          for (final raw in posts[postId] ?? const <_RawItem>[]) entry(raw),
+        ],
+      ));
+    }
+    return summaries;
   }
 
   /// I made this offer and now take it back.

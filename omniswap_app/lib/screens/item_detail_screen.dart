@@ -53,10 +53,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   }
 
   void _makeOffer() {
-    // TODO: open the offer screen for the whole post.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Offers coming soon.')),
-    );
+    Navigator.pushNamed(context, '/make-offer', arguments: widget.post);
   }
 
   @override
