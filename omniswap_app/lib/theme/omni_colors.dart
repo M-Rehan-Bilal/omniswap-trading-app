@@ -10,3 +10,17 @@ const Color kOmniBg = Color(0xFFF4F7FB);
 // Summer Sky accents, used for card borders and photo placeholders.
 const Color kOmniBlue = Color(0xFF1F5CFF);
 const Color kOmniGold = Color(0xFFF2C94C);
+
+// Surfaces and outlines. Use these instead of Colors.white or raw hex values.
+const Color kOmniSurface = Color(0xFFFFFFFF);
+const Color kOmniBorder = Color(0xFFD9E0EA);
+
+// Selected state for pickable cards (e.g. items chosen for an offer).
+const Color kOmniSelectedBg = Color(0xFFE6EEFF);
+
+// Small pills such as the condition chip.
+const Color kOmniChipBg = Color(0xFFE3EAF3);
+
+// Error states (e.g. "this user isn't accepting that offer").
+const Color kOmniError = Color(0xFFD64545);
+const Color kOmniErrorBg = Color(0xFFFDECEC);

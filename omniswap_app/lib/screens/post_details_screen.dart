@@ -6,6 +6,7 @@ import '../widgets/detail_widgets.dart';
 import '../widgets/item_photo.dart';
 import 'home_screen.dart'; // kOmniInk, kOmniMuted, kOmniBg
 import 'item_detail_screen.dart';
+import 'make_offer_screen.dart';
 
 /// The bundle page: a summary of the whole post. Tapping an item opens
 /// that item's own page.
@@ -60,10 +61,11 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
     );
   }
 
-  void _makeOffer() {
-    // TODO: open the offer screen for the whole post.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Offers coming soon.')),
+  /// Opens the Make an Offer screen for the whole post.
+  void _makeOffer(PostDetails post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => MakeOfferScreen(post: post)),
     );
   }
 
@@ -85,7 +87,10 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
       ),
       body: _buildBody(post),
       bottomNavigationBar: post != null && !isOwner
-          ? MakeOfferBar(itemCount: post.items.length, onPressed: _makeOffer)
+          ? MakeOfferBar(
+        itemCount: post.items.length,
+        onPressed: () => _makeOffer(post),
+      )
           : null,
     );
   }

@@ -9,6 +9,7 @@ import 'screens/browse_screen.dart';
 import 'screens/edit_profile_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/inventory_screen.dart';
+import 'screens/my_offers_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/user_service.dart';
 
@@ -109,13 +110,15 @@ Route<dynamic> _onGenerateRoute(RouteSettings settings) {
         page = const EditProfileScreen();
         break;
       case '/trades':
-        page = const _ComingSoonScreen(title: 'Trades');
+      // The Trades tab is My Offers (Sent and Received).
+        page = const MyOffersScreen();
         break;
       case '/notifications':
         page = const _ComingSoonScreen(title: 'Notifications');
         break;
       case '/make-offer':
-      // Takes a PostListing argument once the offer screen exists.
+      // Offers are made from the post pages, which push MakeOfferScreen
+      // directly. This named route is kept only as a placeholder.
         page = const _ComingSoonScreen(title: 'Make an Offer');
         break;
       default:
